@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -37,6 +37,10 @@
 template<class T>
 void HashMapHolder<T>::Insert(T* o)
 {
+    static_assert(std::is_same<Player, T>::value
+        || std::is_same<Transport, T>::value,
+        "Only Player and Transport can be registered in global HashMapHolder");
+
     boost::unique_lock<boost::shared_mutex> lock(*GetLock());
 
     GetContainer()[o->GetGUID()] = o;
@@ -115,6 +119,7 @@ WorldObject* ObjectAccessor::GetWorldObject(WorldObject const& p, ObjectGuid con
         case HighGuid::DynamicObject: return GetDynamicObject(p, guid);
         case HighGuid::AreaTrigger:   return GetAreaTrigger(p, guid);
         case HighGuid::Corpse:        return GetCorpse(p, guid);
+        case HighGuid::Conversation:  return GetConversation(p, guid);
         default:                      return nullptr;
     }
 }
@@ -152,6 +157,11 @@ Object* ObjectAccessor::GetObjectByTypeMask(WorldObject const& p, ObjectGuid con
         case HighGuid::AreaTrigger:
             if (typemask & TYPEMASK_AREATRIGGER)
                 return GetAreaTrigger(p, guid);
+            break;
+        case HighGuid::Conversation:
+            if (typemask & TYPEMASK_CONVERSATION)
+                return GetConversation(p, guid);
+            break;
         case HighGuid::Corpse:
             break;
         default:
@@ -189,6 +199,11 @@ DynamicObject* ObjectAccessor::GetDynamicObject(WorldObject const& u, ObjectGuid
 AreaTrigger* ObjectAccessor::GetAreaTrigger(WorldObject const& u, ObjectGuid const& guid)
 {
     return u.GetMap()->GetAreaTrigger(guid);
+}
+
+Conversation* ObjectAccessor::GetConversation(WorldObject const& u, ObjectGuid const& guid)
+{
+    return u.GetMap()->GetConversation(guid);
 }
 
 Unit* ObjectAccessor::GetUnit(WorldObject const& u, ObjectGuid const& guid)
@@ -243,11 +258,6 @@ Player* ObjectAccessor::FindPlayer(ObjectGuid const& guid)
     return player && player->IsInWorld() ? player : nullptr;
 }
 
-Player* ObjectAccessor::FindConnectedPlayer(ObjectGuid const& guid)
-{
-    return HashMapHolder<Player>::Find(guid);
-}
-
 Player* ObjectAccessor::FindPlayerByName(std::string const& name)
 {
     Player* player = PlayerNameMapHolder::Find(name);
@@ -255,6 +265,17 @@ Player* ObjectAccessor::FindPlayerByName(std::string const& name)
         return nullptr;
 
     return player;
+}
+
+Player* ObjectAccessor::FindPlayerByLowGUID(ObjectGuid::LowType lowguid)
+{
+    ObjectGuid guid = ObjectGuid::Create<HighGuid::Player>(lowguid);
+    return ObjectAccessor::FindPlayer(guid);
+}
+
+Player* ObjectAccessor::FindConnectedPlayer(ObjectGuid const& guid)
+{
+    return HashMapHolder<Player>::Find(guid);
 }
 
 Player* ObjectAccessor::FindConnectedPlayerByName(std::string const& name)

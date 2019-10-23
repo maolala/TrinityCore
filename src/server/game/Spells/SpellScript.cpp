@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,12 +15,13 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "SpellScript.h"
+#include "Log.h"
 #include "Spell.h"
 #include "ScriptMgr.h"
 #include "SpellAuras.h"
 #include "SpellMgr.h"
-#include "SpellScript.h"
-
+#include <sstream>
 #include <string>
 
 bool _SpellScript::_Validate(SpellInfo const* entry)
@@ -33,15 +34,19 @@ bool _SpellScript::_Validate(SpellInfo const* entry)
     return true;
 }
 
-bool _SpellScript::ValidateSpellInfo(std::vector<uint32> spellIds)
+bool _SpellScript::_ValidateSpellInfo(uint32 const* begin, uint32 const* end)
 {
-    for (uint32 spellId : spellIds)
-        if (!sSpellMgr->GetSpellInfo(spellId))
+    bool allValid = true;
+    while (begin != end)
+    {
+        if (!sSpellMgr->GetSpellInfo(*begin))
         {
-            TC_LOG_ERROR("scripts.spells", "_SpellScript::ValidateSpellInfo: Spell %u does not exist.", spellId);
-            return false;
+            TC_LOG_ERROR("scripts.spells", "_SpellScript::ValidateSpellInfo: Spell %u does not exist.", *begin);
+            allValid = false;
         }
-    return true;
+        ++begin;
+    }
+    return allValid;
 }
 
 void _SpellScript::_Register()
@@ -403,6 +408,7 @@ bool SpellScript::IsInTargetHook() const
     {
         case SPELL_SCRIPT_HOOK_EFFECT_LAUNCH_TARGET:
         case SPELL_SCRIPT_HOOK_EFFECT_HIT_TARGET:
+        case SPELL_SCRIPT_HOOK_EFFECT_SUCCESSFUL_DISPEL:
         case SPELL_SCRIPT_HOOK_BEFORE_HIT:
         case SPELL_SCRIPT_HOOK_HIT:
         case SPELL_SCRIPT_HOOK_AFTER_HIT:
@@ -417,7 +423,8 @@ bool SpellScript::IsInHitPhase() const
 
 bool SpellScript::IsInEffectHook() const
 {
-    return (m_currentScriptState >= SPELL_SCRIPT_HOOK_EFFECT_LAUNCH && m_currentScriptState <= SPELL_SCRIPT_HOOK_EFFECT_HIT_TARGET);
+    return (m_currentScriptState >= SPELL_SCRIPT_HOOK_EFFECT_LAUNCH && m_currentScriptState <= SPELL_SCRIPT_HOOK_EFFECT_HIT_TARGET)
+        || m_currentScriptState == SPELL_SCRIPT_HOOK_EFFECT_SUCCESSFUL_DISPEL;
 }
 
 Unit* SpellScript::GetCaster() const
@@ -661,9 +668,9 @@ SpellInfo const* SpellScript::GetTriggeringSpell() const
     return m_spell->m_triggeredByAuraSpell;
 }
 
-void SpellScript::FinishCast(SpellCastResult result)
+void SpellScript::FinishCast(SpellCastResult result, uint32* param1 /*= nullptr*/, uint32* param2 /*= nullptr*/)
 {
-    m_spell->SendCastResult(result);
+    m_spell->SendCastResult(result, param1, param2);
     m_spell->finish(result == SPELL_CAST_OK);
 }
 
@@ -761,6 +768,10 @@ bool AuraScript::_Validate(SpellInfo const* entry)
     for (auto itr = DoCheckProc.begin(); itr != DoCheckProc.end(); ++itr)
         if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasAreaAuraEffect())
             TC_LOG_ERROR("scripts", "Spell `%u` of script `%s` does not have apply aura effect - handler bound to hook `DoCheckProc` of AuraScript won't be executed", entry->Id, m_scriptName->c_str());
+
+    for (auto itr = DoCheckEffectProc.begin(); itr != DoCheckEffectProc.end(); ++itr)
+        if (!itr->GetAffectedEffectsMask(entry))
+            TC_LOG_ERROR("scripts", "Spell `%u` Effect `%s` of script `%s` did not match dbc effect data - handler bound to hook `DoCheckEffectProc` of AuraScript won't be executed", entry->Id, itr->ToString().c_str(), m_scriptName->c_str());
 
     for (auto itr = DoPrepareProc.begin(); itr != DoPrepareProc.end(); ++itr)
         if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasAreaAuraEffect())
@@ -927,6 +938,17 @@ AuraScript::CheckProcHandler::CheckProcHandler(AuraCheckProcFnType handlerScript
 bool AuraScript::CheckProcHandler::Call(AuraScript* auraScript, ProcEventInfo& eventInfo)
 {
     return (auraScript->*_HandlerScript)(eventInfo);
+}
+
+AuraScript::CheckEffectProcHandler::CheckEffectProcHandler(AuraCheckEffectProcFnType handlerScript, uint8 effIndex, uint16 effName)
+    : AuraScript::EffectBase(effIndex, effName)
+{
+    _HandlerScript = handlerScript;
+}
+
+bool AuraScript::CheckEffectProcHandler::Call(AuraScript* auraScript, AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+{
+    return (auraScript->*_HandlerScript)(aurEff, eventInfo);
 }
 
 AuraScript::AuraProcHandler::AuraProcHandler(AuraProcFnType handlerScript)
@@ -1190,6 +1212,7 @@ Unit* AuraScript::GetTarget() const
         case AURA_SCRIPT_HOOK_EFFECT_AFTER_MANASHIELD:
         case AURA_SCRIPT_HOOK_EFFECT_SPLIT:
         case AURA_SCRIPT_HOOK_CHECK_PROC:
+        case AURA_SCRIPT_HOOK_CHECK_EFFECT_PROC:
         case AURA_SCRIPT_HOOK_PREPARE_PROC:
         case AURA_SCRIPT_HOOK_PROC:
         case AURA_SCRIPT_HOOK_AFTER_PROC:
@@ -1207,4 +1230,3 @@ AuraApplication const* AuraScript::GetTargetApplication() const
 {
     return m_auraApplication;
 }
-

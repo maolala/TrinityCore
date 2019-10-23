@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,14 +19,24 @@
 #define TRINITYCORE_AREATRIGGER_H
 
 #include "Object.h"
-#include "Position.h"
-#include "Spline.h"
+#include "MapObject.h"
+#include "AreaTriggerTemplate.h"
 
-class AreaTriggerTemplate;
-class AreaTriggerMiscTemplate;
+class AuraEffect;
+class AreaTriggerAI;
 class SpellInfo;
 class Unit;
-struct AreaTriggerPolygonVertice;
+
+namespace G3D
+{
+    class Vector2;
+    class Vector3;
+}
+namespace Movement
+{
+    template<typename length_type>
+    class Spline;
+}
 
 class TC_GAME_API AreaTrigger : public WorldObject, public GridObject<AreaTrigger>, public MapObject
 {
@@ -34,17 +44,31 @@ class TC_GAME_API AreaTrigger : public WorldObject, public GridObject<AreaTrigge
         AreaTrigger();
         ~AreaTrigger();
 
+        void BuildValuesCreate(ByteBuffer* data, Player const* target) const override;
+        void BuildValuesUpdate(ByteBuffer* data, Player const* target) const override;
+        void ClearUpdateMask(bool remove) override;
+
         void AddToWorld() override;
         void RemoveFromWorld() override;
 
-        bool CreateAreaTrigger(uint32 triggerEntry, Unit* caster, Unit* target, SpellInfo const* spell, Position const& pos, int32 duration, uint32 spellXSpellVisualId, ObjectGuid const& castId = ObjectGuid::Empty);
-        void Update(uint32 p_time) override;
+        void AI_Initialize();
+        void AI_Destroy();
+
+        AreaTriggerAI* AI() { return _ai.get(); }
+
+    private:
+        bool Create(uint32 spellMiscId, Unit* caster, Unit* target, SpellInfo const* spell, Position const& pos, int32 duration, uint32 spellXSpellVisualId, ObjectGuid const& castId, AuraEffect const* aurEff);
+    public:
+        static AreaTrigger* CreateAreaTrigger(uint32 spellMiscId, Unit* caster, Unit* target, SpellInfo const* spell, Position const& pos, int32 duration, uint32 spellXSpellVisualId, ObjectGuid const& castId = ObjectGuid::Empty, AuraEffect const* aurEff = nullptr);
+
+        void Update(uint32 diff) override;
         void Remove();
         bool IsRemoved() const { return _isRemoved; }
-        uint32 GetSpellId() const { return GetUInt32Value(AREATRIGGER_SPELLID); }
+        uint32 GetSpellId() const { return m_areaTriggerData->SpellID; }
+        AuraEffect const* GetAuraEffect() const { return _aurEff; }
         uint32 GetTimeSinceCreated() const { return _timeSinceCreated; }
-        uint32 GetTimeToTarget() const { return GetUInt32Value(AREATRIGGER_TIME_TO_TARGET); }
-        uint32 GetTimeToTargetScale() const { return GetUInt32Value(AREATRIGGER_TIME_TO_TARGET_SCALE); }
+        uint32 GetTimeToTarget() const { return m_areaTriggerData->TimeToTarget; }
+        uint32 GetTimeToTargetScale() const { return m_areaTriggerData->TimeToTargetScale; }
         int32 GetDuration() const { return _duration; }
         int32 GetTotalDuration() const { return _totalDuration; }
         void SetDuration(int32 newDuration);
@@ -56,19 +80,25 @@ class TC_GAME_API AreaTrigger : public WorldObject, public GridObject<AreaTrigge
         AreaTriggerTemplate const* GetTemplate() const;
         uint32 GetScriptId() const;
 
-        ObjectGuid const& GetCasterGuid() const { return GetGuidValue(AREATRIGGER_CASTER); }
+        ObjectGuid const& GetCasterGuid() const { return m_areaTriggerData->Caster; }
         Unit* GetCaster() const;
         Unit* GetTarget() const;
 
-        G3D::Vector3 const& GetRollPitchYaw() const { return _rollPitchYaw; }
-        G3D::Vector3 const& GetTargetRollPitchYaw() const { return _targetRollPitchYaw; }
-        void InitSplineOffsets(std::vector<G3D::Vector3> splinePoints, uint32 timeToTarget);
-        void InitSplines(std::vector<G3D::Vector3> const& splinePoints, uint32 timeToTarget);
-        bool HasSplines() const { return !_spline.empty(); }
-        ::Movement::Spline<int32> const& GetSpline() const { return _spline; }
+        Position const& GetRollPitchYaw() const { return _rollPitchYaw; }
+        Position const& GetTargetRollPitchYaw() const { return _targetRollPitchYaw; }
+        void InitSplineOffsets(std::vector<Position> const& offsets, uint32 timeToTarget);
+        void InitSplines(std::vector<G3D::Vector3> splinePoints, uint32 timeToTarget);
+        bool HasSplines() const;
+        ::Movement::Spline<int32> const& GetSpline() const { return *_spline; }
         uint32 GetElapsedTimeForMovement() const { return GetTimeSinceCreated(); } /// @todo: research the right value, in sniffs both timers are nearly identical
 
+        void InitCircularMovement(AreaTriggerCircularMovementInfo const& cmi, uint32 timeToTarget);
+        bool HasCircularMovement() const;
+        Optional<AreaTriggerCircularMovementInfo> const& GetCircularMovementInfo() const { return _circularMovementInfo; }
+
         void UpdateShape();
+
+        UF::UpdateField<UF::AreaTriggerData, 0, TYPEID_AREATRIGGER> m_areaTriggerData;
 
     protected:
         void _UpdateDuration(int32 newDuration);
@@ -86,11 +116,17 @@ class TC_GAME_API AreaTrigger : public WorldObject, public GridObject<AreaTrigge
         void UndoActions(Unit* unit);
 
         void UpdatePolygonOrientation();
+        void UpdateCircularMovementPosition(uint32 diff);
         void UpdateSplinePosition(uint32 diff);
+
+        Position const* GetCircularMovementCenterPosition() const;
+        Position CalculateCircularMovementPosition() const;
 
         void DebugVisualizePosition(); // Debug purpose only
 
         ObjectGuid _targetGuid;
+
+        AuraEffect const* _aurEff;
 
         int32 _duration;
         int32 _totalDuration;
@@ -98,17 +134,21 @@ class TC_GAME_API AreaTrigger : public WorldObject, public GridObject<AreaTrigge
         float _previousCheckOrientation;
         bool _isRemoved;
 
-        G3D::Vector3 _rollPitchYaw;
-        G3D::Vector3 _targetRollPitchYaw;
-        std::vector<G3D::Vector2> _polygonVertices;
-        ::Movement::Spline<int32> _spline;
+        Position _rollPitchYaw;
+        Position _targetRollPitchYaw;
+        std::vector<Position> _polygonVertices;
+        std::unique_ptr<::Movement::Spline<int32>> _spline;
 
         bool _reachedDestination;
         int32 _lastSplineIndex;
         uint32 _movementTime;
 
+        Optional<AreaTriggerCircularMovementInfo> _circularMovementInfo;
+
         AreaTriggerMiscTemplate const* _areaTriggerMiscTemplate;
         GuidUnorderedSet _insideUnits;
+
+        std::unique_ptr<AreaTriggerAI> _ai;
 };
 
 #endif

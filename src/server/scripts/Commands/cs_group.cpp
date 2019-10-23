@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,13 +15,22 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "ScriptMgr.h"
+#include "CharacterCache.h"
 #include "Chat.h"
+#include "DatabaseEnv.h"
+#include "DB2Stores.h"
+#include "GroupMgr.h"
 #include "Language.h"
 #include "LFG.h"
-#include "Player.h"
+#include "Map.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
-#include "GroupMgr.h"
-#include "ScriptMgr.h"
+#include "PhasingHandler.h"
+#include "Player.h"
+#include "RBAC.h"
+#include "WorldSession.h"
 
 class group_commandscript : public CommandScript
 {
@@ -260,7 +269,6 @@ public:
     {
         // Get ALL the variables!
         Player* playerTarget;
-        uint32 phase = 0;
         ObjectGuid guidTarget;
         std::string nameTarget;
         std::string zoneName;
@@ -270,7 +278,7 @@ public:
         ObjectGuid parseGUID = ObjectGuid::Create<HighGuid::Player>(strtoull(args, nullptr, 10));
 
         // ... and try to extract a player out of it.
-        if (ObjectMgr::GetPlayerNameByGUID(parseGUID, nameTarget))
+        if (sCharacterCache->GetCharacterNameByGuid(parseGUID, nameTarget))
         {
             playerTarget = ObjectAccessor::FindPlayer(parseGUID);
             guidTarget = parseGUID;
@@ -289,7 +297,7 @@ public:
         // If not, we extract it from the SQL.
         if (!groupTarget)
         {
-            PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GROUP_MEMBER);
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GROUP_MEMBER);
             stmt->setUInt64(0, guidTarget.GetCounter());
             PreparedQueryResult resultGroup = CharacterDatabase.Query(stmt);
             if (resultGroup)
@@ -308,7 +316,7 @@ public:
         Group::MemberSlotList const& members = groupTarget->GetMemberSlots();
 
         // To avoid a cluster fuck, namely trying multiple queries to simply get a group member count...
-        handler->PSendSysMessage(LANG_GROUP_TYPE, (groupTarget->isRaidGroup() ? "raid" : "party"), members.size());
+        handler->PSendSysMessage(LANG_GROUP_TYPE, (groupTarget->isRaidGroup() ? "raid" : "party"), std::to_string(members.size()).c_str());
         // ... we simply move the group type and member count print after retrieving the slots and simply output it's size.
 
         // While rather dirty codestyle-wise, it saves space (if only a little). For each member, we look several informations up.
@@ -341,11 +349,12 @@ public:
 
             // Check if iterator is online. If is...
             Player* p = ObjectAccessor::FindPlayer((*itr).guid);
+            std::string phases;
             if (p)
             {
                 // ... than, it prints information like "is online", where he is, etc...
                 onlineState = "online";
-                phase = (!p->IsGameMaster() ? p->GetPhaseMask() : -1);
+                phases = PhasingHandler::FormatPhases(p->GetPhaseShift());
 
                 AreaTableEntry const* area = sAreaTableStore.LookupEntry(p->GetAreaId());
                 if (area)
@@ -360,12 +369,11 @@ public:
                 // ... else, everything is set to offline or neutral values.
                 zoneName    = "<ERROR>";
                 onlineState = "Offline";
-                phase       = 0;
             }
 
             // Now we can print those informations for every single member of each group!
             handler->PSendSysMessage(LANG_GROUP_PLAYER_NAME_GUID, slot.name.c_str(), onlineState,
-                zoneName.c_str(), phase, slot.guid.ToString().c_str(), flags.c_str(),
+                zoneName.c_str(), phases.c_str(), slot.guid.ToString().c_str(), flags.c_str(),
                 lfg::GetRolesString(slot.roles).c_str());
         }
 

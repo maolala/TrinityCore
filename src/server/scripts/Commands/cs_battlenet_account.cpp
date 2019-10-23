@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,13 +15,19 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "BattlenetAccountMgr.h"
 #include "AccountMgr.h"
+#include "BattlenetAccountMgr.h"
+#include "BigNumber.h"
 #include "Chat.h"
+#include "DatabaseEnv.h"
+#include "IpAddress.h"
+#include "IPLocation.h"
 #include "Language.h"
+#include "Log.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Util.h"
+#include "WorldSession.h"
 
 class battlenet_account_commandscript : public CommandScript
 {
@@ -138,30 +144,23 @@ public:
         {
             if (param == "on")
             {
-                PreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_LOGON_COUNTRY);
-                uint32 ip = inet_addr(handler->GetSession()->GetRemoteAddress().c_str());
-                EndianConvertReverse(ip);
-                stmt->setUInt32(0, ip);
-                PreparedQueryResult result = LoginDatabase.Query(stmt);
-                if (result)
+                if (IpLocationRecord const* location = sIPLocation->GetLocationRecord(handler->GetSession()->GetRemoteAddress()))
                 {
-                    Field* fields = result->Fetch();
-                    std::string country = fields[0].GetString();
-                    stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_BNET_ACCOUNT_LOCK_CONTRY);
-                    stmt->setString(0, country);
+                    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_BNET_ACCOUNT_LOCK_CONTRY);
+                    stmt->setString(0, location->CountryCode);
                     stmt->setUInt32(1, handler->GetSession()->GetBattlenetAccountId());
                     LoginDatabase.Execute(stmt);
                     handler->PSendSysMessage(LANG_COMMAND_ACCLOCKLOCKED);
                 }
                 else
                 {
-                    handler->PSendSysMessage("[IP2NATION] Table empty");
-                    TC_LOG_DEBUG("server.bnetserver", "[IP2NATION] Table empty");
+                    handler->PSendSysMessage("IP2Location] No information");
+                    TC_LOG_DEBUG("server.bnetserver", "IP2Location] No information");
                 }
             }
             else if (param == "off")
             {
-                PreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_BNET_ACCOUNT_LOCK_CONTRY);
+                LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_BNET_ACCOUNT_LOCK_CONTRY);
                 stmt->setString(0, "00");
                 stmt->setUInt32(1, handler->GetSession()->GetBattlenetAccountId());
                 LoginDatabase.Execute(stmt);
@@ -189,7 +188,7 @@ public:
 
         if (!param.empty())
         {
-            PreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_BNET_ACCOUNT_LOCK);
+            LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_BNET_ACCOUNT_LOCK);
 
             if (param == "on")
             {
@@ -237,12 +236,12 @@ public:
         }
 
         // We compare the old, saved password to the entered old password - no chance for the unauthorized.
-        if (!Battlenet::AccountMgr::CheckPassword(handler->GetSession()->GetAccountId(), std::string(oldPassword)))
+        if (!Battlenet::AccountMgr::CheckPassword(handler->GetSession()->GetBattlenetAccountId(), std::string(oldPassword)))
         {
             handler->SendSysMessage(LANG_COMMAND_WRONGOLDPASSWORD);
             handler->SetSentErrorMessage(true);
             TC_LOG_INFO("entities.player.character", "Battle.net account: %u (IP: %s) Character:[%s] (%s) Tried to change password, but the provided old password is wrong.",
-                handler->GetSession()->GetAccountId(), handler->GetSession()->GetRemoteAddress().c_str(),
+                handler->GetSession()->GetBattlenetAccountId(), handler->GetSession()->GetRemoteAddress().c_str(),
                 handler->GetSession()->GetPlayer()->GetName().c_str(), handler->GetSession()->GetPlayer()->GetGUID().ToString().c_str());
             return false;
         }
@@ -472,7 +471,7 @@ public:
             return false;
 
         char* battlenetAccountName = strtok((char*)args, " ");
-        PreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BNET_GAME_ACCOUNT_LIST);
+        LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BNET_GAME_ACCOUNT_LIST_SMALL);
         stmt->setString(0, battlenetAccountName);
         if (PreparedQueryResult accountList = LoginDatabase.Query(stmt))
         {

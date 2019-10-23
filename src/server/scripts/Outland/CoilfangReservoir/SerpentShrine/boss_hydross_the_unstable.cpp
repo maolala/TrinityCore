@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -24,8 +24,11 @@ SDCategory: Coilfang Resevoir, Serpent Shrine Cavern
 EndScriptData */
 
 #include "ScriptMgr.h"
+#include "InstanceScript.h"
+#include "ObjectAccessor.h"
 #include "ScriptedCreature.h"
 #include "serpent_shrine.h"
+#include "TemporarySummon.h"
 
 enum HydrossTheUnstable
 {
@@ -86,7 +89,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_hydross_the_unstableAI>(creature);
+        return GetSerpentshrineCavernAI<boss_hydross_the_unstableAI>(creature);
     }
 
     struct boss_hydross_the_unstableAI : public ScriptedAI
@@ -151,7 +154,7 @@ public:
             {
                 beamer->CastSpell(me, SPELL_BLUE_BEAM, true);
                 beamer->SetDisplayId(11686);  //invisible
-                beamer->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                beamer->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 beams[0] = beamer->GetGUID();
             }
             beamer = me->SummonCreature(ENTRY_BEAM_DUMMY, -219.918f, -371.308f, 22.0042f, 2.73072f, TEMPSUMMON_CORPSE_DESPAWN, 0);
@@ -159,7 +162,7 @@ public:
             {
                 beamer->CastSpell(me, SPELL_BLUE_BEAM, true);
                 beamer->SetDisplayId(11686);  //invisible
-                beamer->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                beamer->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 beams[1] = beamer->GetGUID();
             }
         }
@@ -169,8 +172,7 @@ public:
             {
                 if (Creature* mob = ObjectAccessor::GetCreature(*me, beams[i]))
                 {
-                    mob->setDeathState(DEAD);
-                    mob->RemoveCorpse();
+                    mob->DespawnOrUnsummon();
                 }
             }
         }

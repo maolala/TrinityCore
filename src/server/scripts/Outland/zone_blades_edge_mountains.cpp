@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -30,16 +30,18 @@ go_legion_obelisk
 EndContentData */
 
 #include "ScriptMgr.h"
+#include "CellImpl.h"
+#include "CreatureAIImpl.h"
+#include "GameObject.h"
+#include "GridNotifiersImpl.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
 #include "ScriptedCreature.h"
 #include "ScriptedGossip.h"
-#include "GridNotifiers.h"
-#include "GridNotifiersImpl.h"
-#include "Cell.h"
-#include "CellImpl.h"
 #include "SpellInfo.h"
 #include "SpellScript.h"
-#include "SpellAuras.h"
-#include "SpellAuraEffects.h"
+#include "TemporarySummon.h"
 
 /*######
 ## npc_nether_drake
@@ -108,7 +110,7 @@ public:
         void MoveInLineOfSight(Unit* who) override
 
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::MoveInLineOfSight(who);
@@ -121,11 +123,7 @@ public:
                 return;
 
             if (id == 0)
-            {
-                me->setDeathState(JUST_DIED);
-                me->RemoveCorpse();
-                me->SetHealth(0);
-            }
+                me->DespawnOrUnsummon(1);
         }
 
         void SpellHit(Unit* caster, const SpellInfo* spell) override
@@ -142,7 +140,7 @@ public:
                 if (me->GetEntry() == ENTRY_NIHIL)
                 {
                     Talk(SAY_NIHIL_INTERRUPT);
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     IsNihil = false;
                 }
 
@@ -151,9 +149,10 @@ public:
                     if (entry_list[cid] == ENTRY_NIHIL)
                     {
                         EnterEvadeMode();
-                        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                        me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                         IsNihil = true;
-                    }else
+                    }
+                    else
                         AttackStart(caster);
                 }
             }
@@ -184,7 +183,7 @@ public:
                             ++NihilSpeech_Phase;
                             break;
                         case 4:
-                            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                            me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                             //take off to location above
                             me->GetMotionMaster()->MovePoint(0, me->GetPositionX()+50.0f, me->GetPositionY(), me->GetPositionZ()+50.0f);
                             ++NihilSpeech_Phase;
@@ -209,7 +208,7 @@ public:
             if (ManaBurn_Timer <= diff)
             {
                 Unit* target = me->GetVictim();
-                if (target && target->getPowerType() == POWER_MANA)
+                if (target && target->GetPowerType() == POWER_MANA)
                     DoCast(target, SPELL_MANA_BURN);
                 ManaBurn_Timer = 8000 + rand32() % 8000;
             } else ManaBurn_Timer -= diff;
@@ -573,7 +572,7 @@ class npc_simon_bunny : public CreatureScript
                 std::list<WorldObject*> ClusterList;
                 Trinity::AllWorldObjectsInRange objects(me, searchDistance);
                 Trinity::WorldObjectListSearcher<Trinity::AllWorldObjectsInRange> searcher(me, ClusterList, objects);
-                me->VisitNearbyObject(searchDistance, searcher);
+                Cell::VisitAllObjects(me, searcher, searchDistance);
 
                 for (std::list<WorldObject*>::const_iterator i = ClusterList.begin(); i != ClusterList.end(); ++i)
                 {
@@ -630,7 +629,7 @@ class npc_simon_bunny : public CreatureScript
                 _events.ScheduleEvent(EVENT_SIMON_PERIODIC_PLAYER_CHECK, 2000);
 
                 if (GameObject* relic = me->FindNearestGameObject(large ? GO_APEXIS_MONUMENT : GO_APEXIS_RELIC, searchDistance))
-                    relic->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                    relic->AddFlag(GO_FLAG_NOT_SELECTABLE);
             }
 
             // Called when despawning the bunny. Sets all the node GOs to their default states.
@@ -640,14 +639,14 @@ class npc_simon_bunny : public CreatureScript
 
                 for (uint32 clusterId = SIMON_BLUE; clusterId < SIMON_MAX_COLORS; clusterId++)
                     if (GameObject* cluster = me->FindNearestGameObject(clusterIds[clusterId], searchDistance))
-                        cluster->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                        cluster->AddFlag(GO_FLAG_NOT_SELECTABLE);
 
                 for (uint32 auraId = GO_AURA_BLUE; auraId <= GO_AURA_YELLOW; auraId++)
                     if (GameObject* auraGo = me->FindNearestGameObject(auraId, searchDistance))
                         auraGo->RemoveFromWorld();
 
                 if (GameObject* relic = me->FindNearestGameObject(large ? GO_APEXIS_MONUMENT : GO_APEXIS_RELIC, searchDistance))
-                    relic->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                    relic->RemoveFlag(GO_FLAG_NOT_SELECTABLE);
 
                 me->DespawnOrUnsummon(1000);
             }
@@ -691,7 +690,7 @@ class npc_simon_bunny : public CreatureScript
             {
                 for (uint32 clusterId = SIMON_BLUE; clusterId < SIMON_MAX_COLORS; clusterId++)
                     if (GameObject* cluster = me->FindNearestGameObject(clusterIds[clusterId], searchDistance))
-                        cluster->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                        cluster->RemoveFlag(GO_FLAG_NOT_SELECTABLE);
 
                 if (clustersOnly)
                     return;
@@ -745,7 +744,7 @@ class npc_simon_bunny : public CreatureScript
                 {
                     if (GameObject* cluster = me->FindNearestGameObject(clusterIds[clusterId], 2.0f*searchDistance))
                     {
-                        cluster->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                        cluster->AddFlag(GO_FLAG_NOT_SELECTABLE);
 
                         // break since we don't need glowing auras for large clusters
                         if (large)
@@ -959,7 +958,7 @@ public:
             {
                 // Spell 37392 does not exist in dbc, manually spawning
                 me->SummonCreature(NPC_OSCILLATING_FREQUENCY_SCANNER_TOP_BUNNY, me->GetPositionX(), me->GetPositionY(), me->GetPositionZ() + 0.5f, me->GetOrientation(), TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 50000);
-                me->SummonGameObject(GO_OSCILLATING_FREQUENCY_SCANNER, *me, G3D::Quat(), 50);
+                me->SummonGameObject(GO_OSCILLATING_FREQUENCY_SCANNER, *me, QuaternionData::fromEulerAnglesZYX(me->GetOrientation(), 0.0f, 0.0f), 50);
                 me->DespawnOrUnsummon(50000);
             }
 

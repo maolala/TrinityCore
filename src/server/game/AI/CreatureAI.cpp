@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -17,16 +17,20 @@
  */
 
 #include "CreatureAI.h"
-#include "CreatureAIImpl.h"
+#include "AreaBoundary.h"
 #include "Creature.h"
-#include "World.h"
-#include "SpellMgr.h"
-#include "Vehicle.h"
-#include "Log.h"
-#include "MapReference.h"
-#include "Player.h"
+#include "CreatureAIImpl.h"
 #include "CreatureTextMgr.h"
 #include "Language.h"
+#include "Log.h"
+#include "Map.h"
+#include "MapReference.h"
+#include "MotionMaster.h"
+#include "Player.h"
+#include "SpellMgr.h"
+#include "TemporarySummon.h"
+#include "Vehicle.h"
+#include "World.h"
 
 //Disable CreatureAI when charmed
 void CreatureAI::OnCharmed(bool apply)
@@ -39,7 +43,15 @@ void CreatureAI::OnCharmed(bool apply)
 }
 
 AISpellInfoType* UnitAI::AISpellInfo;
-AISpellInfoType* GetAISpellInfo(uint32 i) { return &CreatureAI::AISpellInfo[i]; }
+AISpellInfoType* GetAISpellInfo(uint32 i) { return &UnitAI::AISpellInfo[i]; }
+
+CreatureAI::CreatureAI(Creature* creature) : UnitAI(creature), me(creature), _boundary(nullptr), m_MoveInLineOfSight_locked(false)
+{
+}
+
+CreatureAI::~CreatureAI()
+{
+}
 
 void CreatureAI::Talk(uint8 id, WorldObject const* whisperTarget /*= nullptr*/)
 {
@@ -264,11 +276,11 @@ bool CreatureAI::_EnterEvadeMode(EvadeReason /*why*/)
     // sometimes bosses stuck in combat?
     me->DeleteThreatList();
     me->CombatStop(true);
-    me->LoadCreaturesAddon();
     me->SetLootRecipient(nullptr);
     me->ResetPlayerDamageReq();
     me->SetLastDamagedTime(0);
     me->SetCannotReachTarget(false);
+    me->DoNotReacquireTarget();
 
     if (me->IsInEvadeMode())
         return false;
@@ -342,9 +354,9 @@ int32 CreatureAI::VisualizeBoundary(uint32 duration, Unit* owner, bool fill) con
             if (TempSummon* point = owner->SummonCreature(BOUNDARY_VISUALIZE_CREATURE, Position(startPosition.GetPositionX() + front.first*BOUNDARY_VISUALIZE_STEP_SIZE, startPosition.GetPositionY() + front.second*BOUNDARY_VISUALIZE_STEP_SIZE, spawnZ), TEMPSUMMON_TIMED_DESPAWN, duration * IN_MILLISECONDS))
             {
                 point->SetObjectScale(BOUNDARY_VISUALIZE_CREATURE_SCALE);
-                point->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_STUNNED | UNIT_FLAG_IMMUNE_TO_NPC);
+                point->AddUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_STUNNED | UNIT_FLAG_IMMUNE_TO_NPC));
                 if (!hasOutOfBoundsNeighbor)
-                    point->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                    point->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
             }
         Q.pop();
     }
@@ -357,11 +369,17 @@ bool CreatureAI::CheckBoundary(Position const* who) const
         who = me;
 
     if (_boundary)
-        for (CreatureBoundary::const_iterator it = _boundary->begin(); it != _boundary->end(); ++it)
-            if (!(*it)->IsWithinBoundary(who))
+        for (AreaBoundary const* boundary : *_boundary)
+            if (!boundary->IsWithinBoundary(who))
                 return false;
 
     return true;
+}
+
+void CreatureAI::SetBoundary(CreatureBoundary const* boundary)
+{
+    _boundary = boundary;
+    me->DoImmediateBoundaryCheck();
 }
 
 bool CreatureAI::CheckInRoom()

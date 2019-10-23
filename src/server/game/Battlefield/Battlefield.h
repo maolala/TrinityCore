@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,9 +18,10 @@
 #ifndef BATTLEFIELD_H_
 #define BATTLEFIELD_H_
 
+#include "Position.h"
 #include "SharedDefines.h"
 #include "ZoneScript.h"
-#include "Packets/WorldStatePackets.h"
+#include <map>
 
 enum BattlefieldTypes
 {
@@ -66,14 +67,26 @@ enum BattlefieldTimers
 };
 
 // some class predefs
-class Player;
-class GameObject;
-class WorldPacket;
-class Creature;
-class Unit;
-
 class Battlefield;
 class BfGraveyard;
+class Creature;
+class GameObject;
+class Group;
+class Map;
+class Player;
+class Unit;
+class WorldPacket;
+struct Position;
+struct QuaternionData;
+struct WorldSafeLocsEntry;
+
+namespace WorldPackets
+{
+    namespace WorldState
+    {
+        class InitWorldStates;
+    }
+}
 
 typedef std::vector<BfGraveyard*> GraveyardVect;
 typedef std::map<ObjectGuid, time_t> PlayerTimerMap;
@@ -150,6 +163,7 @@ class TC_GAME_API BfGraveyard
 {
     public:
         BfGraveyard(Battlefield* Bf);
+        virtual ~BfGraveyard() = default;
 
         // Method to changing who controls the graveyard
         void GiveControlTo(TeamId team);
@@ -233,7 +247,7 @@ class TC_GAME_API Battlefield : public ZoneScript
 
         uint32 GetTypeId() const { return m_TypeId; }
         uint32 GetZoneId() const { return m_ZoneId; }
-        uint64 GetQueueId() const { return MAKE_PAIR64(m_BattleId | 0x20000, 0x1F100000); }
+        uint64 GetQueueId() const;
 
         void TeamApplyBuff(TeamId team, uint32 spellId, uint32 spellId2 = 0);
 
@@ -295,7 +309,7 @@ class TC_GAME_API Battlefield : public ZoneScript
 
         // Misc methods
         Creature* SpawnCreature(uint32 entry, Position const& pos);
-        GameObject* SpawnGameObject(uint32 entry, Position const& pos, G3D::Quat const& rot);
+        GameObject* SpawnGameObject(uint32 entry, Position const& pos, QuaternionData const& rot);
 
         Creature* GetCreature(ObjectGuid guid);
         GameObject* GetGameObject(ObjectGuid guid);

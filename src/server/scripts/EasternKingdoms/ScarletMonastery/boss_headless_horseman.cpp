@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -24,13 +24,18 @@ SDCategory: Scarlet Monastery
 EndScriptData */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "SpellMgr.h"
-#include "scarlet_monastery.h"
-#include "LFGMgr.h"
-#include "Player.h"
+#include "GameObject.h"
 #include "Group.h"
+#include "InstanceScript.h"
+#include "LFGMgr.h"
+#include "Map.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
+#include "scarlet_monastery.h"
+#include "ScriptedCreature.h"
 #include "SpellInfo.h"
+#include "TemporarySummon.h"
 
 //this texts are already used by 3975 and 3976
 enum Says
@@ -95,7 +100,7 @@ enum Spells
     SPELL_DEATH                 = 42566       //not correct spell
 };
 
-G3D::Vector3 const FlightPoint[]=
+Position const FlightPoint[]=
 {
     {1754.00f, 1346.00f, 17.50f},
     {1765.00f, 1347.00f, 19.00f},
@@ -120,7 +125,7 @@ G3D::Vector3 const FlightPoint[]=
     {1758.00f, 1367.00f, 19.51f}
 };
 
-G3D::Vector3 const Spawn[]=
+Position const Spawn[]=
 {
     {1776.27f, 1348.74f, 19.20f},       //spawn point for pumpkin shrine mob
     {1765.28f, 1347.46f, 17.55f}     //spawn point for smoke
@@ -141,7 +146,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_wisp_invisAI(creature);
+        return GetScarletMonasteryAI<npc_wisp_invisAI>(creature);
     }
 
     struct npc_wisp_invisAI : public ScriptedAI
@@ -220,7 +225,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_headAI(creature);
+        return GetScarletMonasteryAI<npc_headAI>(creature);
     }
 
     struct npc_headAI : public ScriptedAI
@@ -288,7 +293,7 @@ public:
                         withbody = true;
                         wait = 300;
                         damage = me->GetHealth() - me->CountPctFromMaxHealth(1);
-                        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                        me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                         me->StopMoving();
                         //me->GetMotionMaster()->MoveIdle();
                         DoCast(me, SPELL_HEAD_IS_DEAD);
@@ -313,7 +318,7 @@ public:
                 if (!bodyGUID)
                     bodyGUID = caster->GetGUID();
                 me->RemoveAllAuras();
-                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 DoCast(me, SPELL_HEAD_LANDS, true);
                 DoCast(me, SPELL_HEAD, false);
                 SaySound(SAY_LOST_HEAD);
@@ -373,7 +378,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_headless_horsemanAI>(creature);
+        return GetScarletMonasteryAI<boss_headless_horsemanAI>(creature);
     }
 
     struct boss_headless_horsemanAI : public ScriptedAI
@@ -441,14 +446,14 @@ public:
                 headGUID.Clear();
             }
 
-            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC);
+            me->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
             //instance->SetBossState(DATA_HORSEMAN_EVENT, NOT_STARTED);
         }
 
         void FlyMode()
         {
             me->SetVisible(false);
-            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+            me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
             me->SetDisableGravity(true);
             me->SetSpeedRate(MOVE_WALK, 5.0f);
             wp_reached = false;
@@ -472,7 +477,7 @@ public:
                     break;
                 case 1:
                 {
-                    if (Creature* smoke = me->SummonCreature(HELPER, Spawn[1].x, Spawn[1].y, Spawn[1].z, 0, TEMPSUMMON_TIMED_DESPAWN, 20000))
+                    if (Creature* smoke = me->SummonCreature(HELPER, Spawn[1], TEMPSUMMON_TIMED_DESPAWN, 20000))
                         ENSURE_AI(npc_wisp_invis::npc_wisp_invisAI, smoke->AI())->SetType(3);
                     DoCast(me, SPELL_RHYME_BIG);
                     break;
@@ -488,7 +493,7 @@ public:
                     Phase = 1;
                     IsFlying = false;
                     wp_reached = false;
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     SaySound(SAY_ENTRANCE);
                     if (Unit* player = ObjectAccessor::GetUnit(*me, PlayerGUID))
                         DoStartMovement(player);
@@ -576,7 +581,7 @@ public:
             {
                 if (Group* group = players.begin()->GetSource()->GetGroup())
                     if (group->isLFGGroup())
-                        sLFGMgr->FinishDungeon(group->GetGUID(), 285);
+                        sLFGMgr->FinishDungeon(group->GetGUID(), 285, me->GetMap());
             }
         }
 
@@ -626,7 +631,7 @@ public:
                 Unit* Head = ObjectAccessor::GetUnit(*me, headGUID);
                 if (Head && Head->IsAlive())
                 {
-                    Head->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    Head->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     //Head->CastSpell(Head, SPELL_HEAD_INVIS, false);
                     me->InterruptNonMeleeSpells(false);
                     DoCast(me, SPELL_IMMUNE, true);
@@ -681,7 +686,7 @@ public:
                             {
                                 wp_reached = false;
                                 me->GetMotionMaster()->Clear(false);
-                                me->GetMotionMaster()->MovePoint(id, FlightPoint[id].x, FlightPoint[id].y, FlightPoint[id].z);
+                                me->GetMotionMaster()->MovePoint(id, FlightPoint[id]);
                             }
                         }
                     }
@@ -691,7 +696,7 @@ public:
                             break;
                         if (burn <= diff)
                         {
-                            if (Creature* flame = me->SummonCreature(HELPER, Spawn[0].x, Spawn[0].y, Spawn[0].z, 0, TEMPSUMMON_TIMED_DESPAWN, 17000))
+                            if (Creature* flame = me->SummonCreature(HELPER, Spawn[0], TEMPSUMMON_TIMED_DESPAWN, 17000))
                                 ENSURE_AI(npc_wisp_invis::npc_wisp_invisAI, flame->AI())->SetType(2);
                             burned = true;
                         }
@@ -783,7 +788,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_pulsing_pumpkinAI(creature);
+        return GetScarletMonasteryAI<npc_pulsing_pumpkinAI>(creature);
     }
 
     struct npc_pulsing_pumpkinAI : public ScriptedAI
@@ -814,7 +819,7 @@ public:
             sprouted = false;
             DoCast(me, SPELL_PUMPKIN_AURA, true);
             DoCast(me, SPELL_SPROUTING);
-            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED);
+            me->AddUnitFlag(UNIT_FLAG_STUNNED);
         }
 
         void EnterCombat(Unit* /*who*/) override { }
@@ -825,7 +830,7 @@ public:
             {
                 sprouted = true;
                 me->RemoveAllAuras();
-                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED);
+                me->RemoveUnitFlag(UNIT_FLAG_STUNNED);
                 DoCast(me, SPELL_SPROUT_BODY, true);
                 me->UpdateEntry(PUMPKIN_FIEND);
                 DoStartMovement(me->GetVictim());
@@ -895,7 +900,7 @@ public:
                 return false;
 
         player->AreaExploredOrEventHappens(11405);
-        if (Creature* horseman = go->SummonCreature(HH_MOUNTED, FlightPoint[20].x, FlightPoint[20].y, FlightPoint[20].z, 0, TEMPSUMMON_MANUAL_DESPAWN, 0))
+        if (Creature* horseman = go->SummonCreature(HH_MOUNTED, FlightPoint[20], TEMPSUMMON_MANUAL_DESPAWN, 0))
         {
             ENSURE_AI(boss_headless_horseman::boss_headless_horsemanAI, horseman->AI())->PlayerGUID = player->GetGUID();
             ENSURE_AI(boss_headless_horseman::boss_headless_horsemanAI, horseman->AI())->FlyMode();
@@ -919,8 +924,8 @@ void npc_head::npc_headAI::Disappear()
             body->RemoveAurasDueToSpell(SPELL_IMMUNE);//hack, SpellHit doesn't calls if body has immune aura
             DoCast(body, SPELL_FLYING_HEAD);
             me->SetFullHealth();
-            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
-            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+            me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
+            me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
             me->GetMotionMaster()->MoveIdle();
             ENSURE_AI(boss_headless_horseman::boss_headless_horsemanAI, body->AI())->returned = true;
         }

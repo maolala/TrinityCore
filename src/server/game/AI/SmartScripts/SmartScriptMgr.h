@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,15 +18,14 @@
 #ifndef TRINITY_SMARTSCRIPTMGR_H
 #define TRINITY_SMARTSCRIPTMGR_H
 
-#include "Common.h"
-#include "Creature.h"
-#include "CreatureAI.h"
-#include "Unit.h"
-#include "Spell.h"
-#include "DB2Stores.h"
+#include "Define.h"
+#include "ObjectGuid.h"
+#include <map>
+#include <string>
+#include <unordered_map>
 
-//#include "SmartScript.h"
-//#include "SmartAI.h"
+class WorldObject;
+enum SpellEffIndex : uint8;
 
 struct WayPoint
 {
@@ -66,9 +65,12 @@ enum SMART_EVENT_PHASE
     SMART_EVENT_PHASE_7       = 7,
     SMART_EVENT_PHASE_8       = 8,
     SMART_EVENT_PHASE_9       = 9,
-    SMART_EVENT_PHASE_MAX     = 10,
+    SMART_EVENT_PHASE_10      = 10,
+    SMART_EVENT_PHASE_11      = 11,
+    SMART_EVENT_PHASE_12      = 12,
+    SMART_EVENT_PHASE_MAX     = 13,
 
-    SMART_EVENT_PHASE_COUNT   = 9
+    SMART_EVENT_PHASE_COUNT   = 12
 };
 
 enum SMART_EVENT_PHASE_BITS
@@ -83,7 +85,12 @@ enum SMART_EVENT_PHASE_BITS
     SMART_EVENT_PHASE_7_BIT        = 64,
     SMART_EVENT_PHASE_8_BIT        = 128,
     SMART_EVENT_PHASE_9_BIT        = 256,
-    SMART_EVENT_PHASE_ALL          = SMART_EVENT_PHASE_1_BIT + SMART_EVENT_PHASE_2_BIT + SMART_EVENT_PHASE_3_BIT + SMART_EVENT_PHASE_4_BIT + SMART_EVENT_PHASE_5_BIT + SMART_EVENT_PHASE_6_BIT + SMART_EVENT_PHASE_7_BIT + SMART_EVENT_PHASE_8_BIT + SMART_EVENT_PHASE_9_BIT
+    SMART_EVENT_PHASE_10_BIT       = 512,
+    SMART_EVENT_PHASE_11_BIT       = 1024,
+    SMART_EVENT_PHASE_12_BIT       = 2048,
+    SMART_EVENT_PHASE_ALL          = SMART_EVENT_PHASE_1_BIT + SMART_EVENT_PHASE_2_BIT + SMART_EVENT_PHASE_3_BIT + SMART_EVENT_PHASE_4_BIT + SMART_EVENT_PHASE_5_BIT +
+                                     SMART_EVENT_PHASE_6_BIT + SMART_EVENT_PHASE_7_BIT + SMART_EVENT_PHASE_8_BIT + SMART_EVENT_PHASE_9_BIT + SMART_EVENT_PHASE_10_BIT +
+                                     SMART_EVENT_PHASE_11_BIT + SMART_EVENT_PHASE_12_BIT
 };
 
 const uint32 SmartPhaseMask[SMART_EVENT_PHASE_COUNT][2] =
@@ -96,7 +103,10 @@ const uint32 SmartPhaseMask[SMART_EVENT_PHASE_COUNT][2] =
     {SMART_EVENT_PHASE_6, SMART_EVENT_PHASE_6_BIT },
     {SMART_EVENT_PHASE_7, SMART_EVENT_PHASE_7_BIT },
     {SMART_EVENT_PHASE_8, SMART_EVENT_PHASE_8_BIT },
-    {SMART_EVENT_PHASE_9, SMART_EVENT_PHASE_9_BIT }
+    {SMART_EVENT_PHASE_9, SMART_EVENT_PHASE_9_BIT },
+    {SMART_EVENT_PHASE_10, SMART_EVENT_PHASE_10_BIT },
+    {SMART_EVENT_PHASE_11, SMART_EVENT_PHASE_11_BIT },
+    {SMART_EVENT_PHASE_12, SMART_EVENT_PHASE_12_BIT }
 };
 
 enum SMART_EVENT
@@ -165,7 +175,7 @@ enum SMART_EVENT
     SMART_EVENT_LINK                     = 61,      // INTERNAL USAGE, no params, used to link together multiple events, does not use any extra resources to iterate event lists needlessly
     SMART_EVENT_GOSSIP_SELECT            = 62,      // menuID, actionID
     SMART_EVENT_JUST_CREATED             = 63,      // none
-    SMART_EVENT_GOSSIP_HELLO             = 64,      // none
+    SMART_EVENT_GOSSIP_HELLO             = 64,      // noReportUse (for GOs)
     SMART_EVENT_FOLLOW_COMPLETED         = 65,      // none
     SMART_EVENT_DUMMY_EFFECT             = 66,      // spellId, effectIndex
     SMART_EVENT_IS_BEHIND_TARGET         = 67,      // cooldownMin, CooldownMax
@@ -179,8 +189,12 @@ enum SMART_EVENT
     SMART_EVENT_DISTANCE_CREATURE        = 75,      // guid, entry, distance, repeat
     SMART_EVENT_DISTANCE_GAMEOBJECT      = 76,      // guid, entry, distance, repeat
     SMART_EVENT_COUNTER_SET              = 77,      // id, value, cooldownMin, cooldownMax
+    SMART_EVENT_SCENE_START              = 78,      // none
+    SMART_EVENT_SCENE_TRIGGER            = 79,      // param_string : triggerName
+    SMART_EVENT_SCENE_CANCEL             = 80,      // none
+    SMART_EVENT_SCENE_COMPLETE           = 81,      // none
 
-    SMART_EVENT_END                      = 78
+    SMART_EVENT_END                      = 82
 };
 
 struct SmartEvent
@@ -361,6 +375,11 @@ struct SmartEvent
 
         struct
         {
+            uint32 noReportUse;
+        } gossipHello;
+
+        struct
+        {
             uint32 sender;
             uint32 action;
         } gossip;
@@ -423,12 +442,20 @@ struct SmartEvent
 
         struct
         {
+            uint32 sceneId;
+        } scene;
+
+        struct
+        {
             uint32 param1;
             uint32 param2;
             uint32 param3;
             uint32 param4;
+            uint32 param5;
         } raw;
     };
+
+    std::string param_string;
 };
 
 enum SMART_SCRIPT_RESPAWN_CONDITION
@@ -500,7 +527,7 @@ enum SMART_ACTION
     SMART_ACTION_REMOVE_ITEM                        = 57,     // itemID, count
     SMART_ACTION_INSTALL_AI_TEMPLATE                = 58,     // AITemplateID
     SMART_ACTION_SET_RUN                            = 59,     // 0/1
-    SMART_ACTION_SET_FLY                            = 60,     // 0/1
+    SMART_ACTION_SET_DISABLE_GRAVITY                = 60,     // 0/1
     SMART_ACTION_SET_SWIM                           = 61,     // 0/1
     SMART_ACTION_TELEPORT                           = 62,     // mapID,
     SMART_ACTION_SET_COUNTER                        = 63,     // id, value, reset (0/1)
@@ -509,7 +536,7 @@ enum SMART_ACTION
     SMART_ACTION_SET_ORIENTATION                    = 66,     //
     SMART_ACTION_CREATE_TIMED_EVENT                 = 67,     // id, InitialMin, InitialMax, RepeatMin(only if it repeats), RepeatMax(only if it repeats), chance
     SMART_ACTION_PLAYMOVIE                          = 68,     // entry
-    SMART_ACTION_MOVE_TO_POS                        = 69,     // PointId, transport, disablePathfinding
+    SMART_ACTION_MOVE_TO_POS                        = 69,     // PointId, transport, disablePathfinding, ContactDistance
     SMART_ACTION_RESPAWN_TARGET                     = 70,     //
     SMART_ACTION_EQUIP                              = 71,     // entry, slotmask slot1, slot2, slot3   , only slots with mask set will be sent to client, bits are 1, 2, 4, leaving mask 0 is defaulted to mask 7 (send all), slots1-3 are only used if no entry is set
     SMART_ACTION_CLOSE_GOSSIP                       = 72,     // none
@@ -538,7 +565,7 @@ enum SMART_ACTION
     SMART_ACTION_ADD_DYNAMIC_FLAG                   = 95,     // Flags
     SMART_ACTION_REMOVE_DYNAMIC_FLAG                = 96,     // Flags
     SMART_ACTION_JUMP_TO_POS                        = 97,     // speedXY, speedZ, targetX, targetY, targetZ
-    SMART_ACTION_SEND_GOSSIP_MENU                   = 98,     // menuId, optionId
+    SMART_ACTION_SEND_GOSSIP_MENU                   = 98,     // menuId, optionIndex
     SMART_ACTION_GO_SET_LOOT_STATE                  = 99,     // state
     SMART_ACTION_SEND_TARGET_TO_TARGET              = 100,    // id
     SMART_ACTION_SET_HOME_POS                       = 101,    // none
@@ -558,8 +585,24 @@ enum SMART_ACTION
     SMART_ACTION_RANDOM_SOUND                       = 115,    // soundId1, soundId2, soundId3, soundId4, soundId5, onlySelf
     SMART_ACTION_SET_CORPSE_DELAY                   = 116,    // timer
     SMART_ACTION_DISABLE_EVADE                      = 117,    // 0/1 (1 = disabled, 0 = enabled)
-
-    SMART_ACTION_END                                = 118
+    SMART_ACTION_GO_SET_GO_STATE                    = 118,    // state
+    SMART_ACTION_SET_CAN_FLY                        = 119,    // 0/1
+    SMART_ACTION_REMOVE_AURAS_BY_TYPE               = 120,    // type
+    SMART_ACTION_SET_SIGHT_DIST                     = 121,    // sightDistance
+    SMART_ACTION_FLEE                               = 122,    // fleeTime
+    SMART_ACTION_ADD_THREAT                         = 123,    // +threat, -threat
+    SMART_ACTION_LOAD_EQUIPMENT                     = 124,    // id
+    SMART_ACTION_TRIGGER_RANDOM_TIMED_EVENT         = 125,    // id min range, id max range
+    SMART_ACTION_REMOVE_ALL_GAMEOBJECTS             = 126,
+    SMART_ACTION_STOP_MOTION                        = 127,    // stopMoving, movementExpired
+    SMART_ACTION_PLAY_ANIMKIT                       = 128,    // id, type (0 = oneShot, 1 = aiAnim, 2 = meleeAnim, 3 = movementAnim)
+    SMART_ACTION_SCENE_PLAY                         = 129,    // sceneId
+    SMART_ACTION_SCENE_CANCEL                       = 130,    // sceneId
+    // 131 - 134 : 3.3.5 reserved
+    SMART_ACTION_PLAY_CINEMATIC                     = 135,    // reserved for future uses
+    SMART_ACTION_SET_MOVEMENT_SPEED                 = 136,    // movementType, speedInteger, speedFraction
+    SMART_ACTION_PLAY_SPELL_VISUAL_KIT              = 137,    // spellVisualKitId, kitType (unknown values, copypaste from packet dumps), duration
+    SMART_ACTION_END                                = 138
 };
 
 struct SmartAction
@@ -628,6 +671,7 @@ struct SmartAction
             uint32 spell;
             uint32 castFlags;
             uint32 triggerFlags;
+            uint32 targetsLimit;
         } cast;
 
         struct
@@ -763,6 +807,7 @@ struct SmartAction
         struct
         {
             uint32 delay;
+            uint32 respawn;
         } forceDespawn;
 
         struct
@@ -857,6 +902,11 @@ struct SmartAction
         {
             uint32 run;
         } setRun;
+
+        struct
+        {
+            uint32 disable;
+        } setDisableGravity;
 
         struct
         {
@@ -975,6 +1025,11 @@ struct SmartAction
         struct
         {
             uint32 withEmote;
+        } fleeAssist;
+
+        struct
+        {
+            uint32 fleeTime;
         } flee;
 
         struct
@@ -987,6 +1042,7 @@ struct SmartAction
             uint32 pointId;
             uint32 transport;
             uint32 disablePathfinding;
+            uint32 ContactDistance;
         } MoveToPos;
 
         struct
@@ -1028,6 +1084,11 @@ struct SmartAction
 
         struct
         {
+            uint32 state;
+        } goState;
+
+        struct
+        {
             uint32 group;
             uint32 attackInvoker;
         } creatureGroup;
@@ -1060,7 +1121,7 @@ struct SmartAction
 
         struct
         {
-            std::array<uint32, SMART_ACTION_PARAM_COUNT - 1> sounds;
+            uint32 sounds[SMART_ACTION_PARAM_COUNT - 1];
             uint32 onlySelf;
         } randomSound;
 
@@ -1073,6 +1134,59 @@ struct SmartAction
         {
             uint32 disable;
         } disableEvade;
+
+        struct
+        {
+            uint32 type;
+        } auraType;
+
+        struct
+        {
+            uint32 dist;
+        } sightDistance;
+
+        struct
+        {
+            uint32 id;
+            uint32 force;
+        } loadEquipment;
+
+        struct
+        {
+            uint32 minId;
+            uint32 maxId;
+        } randomTimedEvent;
+
+        struct
+        {
+            uint32 stopMovement;
+            uint32 movementExpired;
+        } stopMotion;
+
+        struct
+        {
+            uint32 animKit;
+            uint32 type;
+        } animKit;
+
+        struct
+        {
+            uint32 sceneId;
+        } scene;
+
+        struct
+        {
+            uint32 movementType;
+            uint32 speedInteger;
+            uint32 speedFraction;
+        } movementSpeed;
+
+        struct
+        {
+            uint32 spellVisualKitId;
+            uint32 kitType;
+            uint32 duration;
+        } spellVisualKit;
 
         //! Note for any new future actions
         //! All parameters must have type uint32
@@ -1105,10 +1219,10 @@ enum SMARTAI_TARGETS
     SMART_TARGET_NONE                           = 0,    // NONE, defaulting to invoket
     SMART_TARGET_SELF                           = 1,    // Self cast
     SMART_TARGET_VICTIM                         = 2,    // Our current target (ie: highest aggro)
-    SMART_TARGET_HOSTILE_SECOND_AGGRO           = 3,    // Second highest aggro
-    SMART_TARGET_HOSTILE_LAST_AGGRO             = 4,    // Dead last on aggro
-    SMART_TARGET_HOSTILE_RANDOM                 = 5,    // Just any random target on our threat list
-    SMART_TARGET_HOSTILE_RANDOM_NOT_TOP         = 6,    // Any random target except top threat
+    SMART_TARGET_HOSTILE_SECOND_AGGRO           = 3,    // Second highest aggro, maxdist, playerOnly, powerType + 1
+    SMART_TARGET_HOSTILE_LAST_AGGRO             = 4,    // Dead last on aggro, maxdist, playerOnly, powerType + 1
+    SMART_TARGET_HOSTILE_RANDOM                 = 5,    // Just any random target on our threat list, maxdist, playerOnly, powerType + 1
+    SMART_TARGET_HOSTILE_RANDOM_NOT_TOP         = 6,    // Any random target except top threat, maxdist, playerOnly, powerType + 1
     SMART_TARGET_ACTION_INVOKER                 = 7,    // Unit who caused this Event to occur
     SMART_TARGET_POSITION                       = 8,    // use xyz from event params
     SMART_TARGET_CREATURE_RANGE                 = 9,    // CreatureEntry(0any), minDist, maxDist
@@ -1125,13 +1239,15 @@ enum SMARTAI_TARGETS
     SMART_TARGET_CLOSEST_GAMEOBJECT             = 20,   // entry(0any), maxDist
     SMART_TARGET_CLOSEST_PLAYER                 = 21,   // maxDist
     SMART_TARGET_ACTION_INVOKER_VEHICLE         = 22,   // Unit's vehicle who caused this Event to occur
-    SMART_TARGET_OWNER_OR_SUMMONER              = 23,   // Unit's owner or summoner
-    SMART_TARGET_THREAT_LIST                    = 24,   // All units on creature's threat list
+    SMART_TARGET_OWNER_OR_SUMMONER              = 23,   // Unit's owner or summoner, Use Owner/Charmer of this unit
+    SMART_TARGET_THREAT_LIST                    = 24,   // All units on creature's threat list, maxdist
     SMART_TARGET_CLOSEST_ENEMY                  = 25,   // maxDist, playerOnly
     SMART_TARGET_CLOSEST_FRIENDLY               = 26,   // maxDist, playerOnly
     SMART_TARGET_LOOT_RECIPIENTS                = 27,   // all players that have tagged this creature (for kill credit)
+    SMART_TARGET_FARTHEST                       = 28,   // maxDist, playerOnly, isInLos
+    SMART_TARGET_VEHICLE_ACCESSORY              = 29,   // seat number (vehicle can target it's own accessory)
 
-    SMART_TARGET_END                            = 28
+    SMART_TARGET_END                            = 30
 };
 
 struct SmartTarget
@@ -1151,6 +1267,20 @@ struct SmartTarget
     float x, y, z, o;
     union
     {
+        struct
+        {
+            uint32 maxDist;
+            uint32 playerOnly;
+            uint32 powerType;
+        } hostilRandom;
+
+        struct
+        {
+            uint32 maxDist;
+            uint32 playerOnly;
+            uint32 isInLos;
+        } farthest;
+
         struct
         {
             uint32 creature;
@@ -1231,10 +1361,20 @@ struct SmartTarget
 
         struct
         {
+            uint32 useCharmerOrOwner;
+        } owner;
+
+        struct
+        {
             uint32 param1;
             uint32 param2;
             uint32 param3;
         } raw;
+
+        struct
+        {
+            uint32 seat;
+        } vehicle;
     };
 };
 
@@ -1250,7 +1390,8 @@ enum SmartScriptType
     SMART_SCRIPT_TYPE_TRANSPORT = 7, //
     SMART_SCRIPT_TYPE_INSTANCE = 8, //
     SMART_SCRIPT_TYPE_TIMED_ACTIONLIST = 9, //
-    SMART_SCRIPT_TYPE_MAX = 10
+    SMART_SCRIPT_TYPE_SCENE = 10, //done
+    SMART_SCRIPT_TYPE_MAX = 11
 };
 
 enum SmartAITypeMaskId
@@ -1264,7 +1405,8 @@ enum SmartAITypeMaskId
     SMART_SCRIPT_TYPE_MASK_SPELL = 64,
     SMART_SCRIPT_TYPE_MASK_TRANSPORT = 128,
     SMART_SCRIPT_TYPE_MASK_INSTANCE = 256,
-    SMART_SCRIPT_TYPE_MASK_TIMED_ACTIONLIST = 512
+    SMART_SCRIPT_TYPE_MASK_TIMED_ACTIONLIST = 512,
+    SMART_SCRIPT_TYPE_MASK_SCENE = 1024
 };
 
 const uint32 SmartAITypeMask[SMART_SCRIPT_TYPE_MAX][2] =
@@ -1278,7 +1420,8 @@ const uint32 SmartAITypeMask[SMART_SCRIPT_TYPE_MAX][2] =
     {SMART_SCRIPT_TYPE_SPELL,               SMART_SCRIPT_TYPE_MASK_SPELL },
     {SMART_SCRIPT_TYPE_TRANSPORT,           SMART_SCRIPT_TYPE_MASK_TRANSPORT },
     {SMART_SCRIPT_TYPE_INSTANCE,            SMART_SCRIPT_TYPE_MASK_INSTANCE },
-    {SMART_SCRIPT_TYPE_TIMED_ACTIONLIST,    SMART_SCRIPT_TYPE_MASK_TIMED_ACTIONLIST }
+    {SMART_SCRIPT_TYPE_TIMED_ACTIONLIST,    SMART_SCRIPT_TYPE_MASK_TIMED_ACTIONLIST },
+    {SMART_SCRIPT_TYPE_SCENE,               SMART_SCRIPT_TYPE_MASK_SCENE }
 };
 
 const uint32 SmartAIEventMask[SMART_EVENT_END][2] =
@@ -1360,7 +1503,11 @@ const uint32 SmartAIEventMask[SMART_EVENT_END][2] =
     {SMART_EVENT_FRIENDLY_HEALTH_PCT,       SMART_SCRIPT_TYPE_MASK_CREATURE },
     {SMART_EVENT_DISTANCE_CREATURE,         SMART_SCRIPT_TYPE_MASK_CREATURE },
     {SMART_EVENT_DISTANCE_GAMEOBJECT,       SMART_SCRIPT_TYPE_MASK_CREATURE },
-    {SMART_EVENT_COUNTER_SET,               SMART_SCRIPT_TYPE_MASK_CREATURE + SMART_SCRIPT_TYPE_MASK_GAMEOBJECT }
+    {SMART_EVENT_COUNTER_SET,               SMART_SCRIPT_TYPE_MASK_CREATURE + SMART_SCRIPT_TYPE_MASK_GAMEOBJECT },
+    {SMART_EVENT_SCENE_START,               SMART_SCRIPT_TYPE_MASK_SCENE },
+    {SMART_EVENT_SCENE_TRIGGER,             SMART_SCRIPT_TYPE_MASK_SCENE },
+    {SMART_EVENT_SCENE_CANCEL,              SMART_SCRIPT_TYPE_MASK_SCENE },
+    {SMART_EVENT_SCENE_COMPLETE,            SMART_SCRIPT_TYPE_MASK_SCENE }
 };
 
 enum SmartEventFlags
@@ -1431,37 +1578,9 @@ class ObjectGuidList
     WorldObject* m_baseObject;
 
 public:
-    ObjectGuidList(ObjectList* objectList, WorldObject* baseObject)
-    {
-        ASSERT(objectList != NULL);
-        m_objectList = objectList;
-        m_baseObject = baseObject;
-        m_guidList = new GuidList();
+    ObjectGuidList(ObjectList* objectList, WorldObject* baseObject);
 
-        for (ObjectList::iterator itr = objectList->begin(); itr != objectList->end(); ++itr)
-        {
-            m_guidList->push_back((*itr)->GetGUID());
-        }
-    }
-
-    ObjectList* GetObjectList()
-    {
-        if (m_baseObject)
-        {
-            //sanitize list using m_guidList
-            m_objectList->clear();
-
-            for (GuidList::iterator itr = m_guidList->begin(); itr != m_guidList->end(); ++itr)
-            {
-                if (WorldObject* obj = ObjectAccessor::GetWorldObject(*m_baseObject, *itr))
-                    m_objectList->push_back(obj);
-                else
-                    TC_LOG_DEBUG("scripts.ai", "SmartScript::mTargetStorage stores a guid to an invalid object: %s", itr->ToString().c_str());
-            }
-        }
-
-        return m_objectList;
-    }
+    ObjectList* GetObjectList();
 
     bool Equals(ObjectList* objectList)
     {
@@ -1500,6 +1619,7 @@ class TC_GAME_API SmartWaypointMgr
 
 // all events for a single entry
 typedef std::vector<SmartScriptHolder> SmartAIEventList;
+typedef std::vector<SmartScriptHolder> SmartAIEventStoredList;
 
 // all events for all entries / guids
 typedef std::unordered_map<int64, SmartAIEventList> SmartAIEventMap;
@@ -1519,42 +1639,11 @@ class TC_GAME_API SmartAIMgr
 
         void LoadSmartAIFromDB();
 
-        SmartAIEventList GetScript(int32 entry, SmartScriptType type)
-        {
-            SmartAIEventList temp;
-            if (mEventMap[uint32(type)].find(entry) != mEventMap[uint32(type)].end())
-                return mEventMap[uint32(type)][entry];
-            else
-            {
-                if (entry > 0)//first search is for guid (negative), do not drop error if not found
-                    TC_LOG_DEBUG("scripts.ai", "SmartAIMgr::GetScript: Could not load Script for Entry %d ScriptType %u.", entry, uint32(type));
-                return temp;
-            }
-        }
+        SmartAIEventList GetScript(int32 entry, SmartScriptType type);
 
-        static SmartScriptHolder& FindLinkedSourceEvent(SmartAIEventList& list, uint32 eventId)
-        {
-            SmartAIEventList::iterator itr = std::find_if(list.begin(), list.end(),
-                [eventId](SmartScriptHolder& source) { return source.link == eventId; });
+        static SmartScriptHolder& FindLinkedSourceEvent(SmartAIEventList& list, uint32 eventId);
 
-            if (itr != list.end())
-                return *itr;
-
-            static SmartScriptHolder SmartScriptHolderDummy;
-            return SmartScriptHolderDummy;
-        }
-
-        static SmartScriptHolder& FindLinkedEvent(SmartAIEventList& list, uint32 link)
-        {
-            SmartAIEventList::iterator itr = std::find_if(list.begin(), list.end(),
-                [link](SmartScriptHolder& linked) { return linked.event_id == link && linked.GetEventType() == SMART_EVENT_LINK; });
-
-            if (itr != list.end())
-                return *itr;
-
-            static SmartScriptHolder SmartScriptHolderDummy;
-            return SmartScriptHolderDummy;
-        }
+        static SmartScriptHolder& FindLinkedEvent(SmartAIEventList& list, uint32 link);
 
     private:
         //event stores
@@ -1562,16 +1651,7 @@ class TC_GAME_API SmartAIMgr
 
         bool IsEventValid(SmartScriptHolder& e);
         bool IsTargetValid(SmartScriptHolder const& e);
-
-        bool IsMinMaxValid(SmartScriptHolder const& e, uint32 min, uint32 max)
-        {
-            if (max < min)
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u uses min/max params wrong (%u/%u), skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), min, max);
-                return false;
-            }
-            return true;
-        }
+        bool IsMinMaxValid(SmartScriptHolder const& e, uint32 min, uint32 max);
 
         /*inline bool IsPercentValid(SmartScriptHolder e, int32 pct)
         {
@@ -1583,106 +1663,18 @@ class TC_GAME_API SmartAIMgr
             return true;
         }*/
 
-        bool NotNULL(SmartScriptHolder const& e, uint32 data)
-        {
-            if (!data)
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u Parameter can not be NULL, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType());
-                return false;
-            }
-            return true;
-        }
-
-        bool IsCreatureValid(SmartScriptHolder const& e, uint32 entry)
-        {
-            if (!sObjectMgr->GetCreatureTemplate(entry))
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u uses non-existent Creature entry %u, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), entry);
-                return false;
-            }
-            return true;
-        }
-
-        bool IsQuestValid(SmartScriptHolder const& e, uint32 entry)
-        {
-            if (!sObjectMgr->GetQuestTemplate(entry))
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u uses non-existent Quest entry %u, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), entry);
-                return false;
-            }
-            return true;
-        }
-
-        bool IsGameObjectValid(SmartScriptHolder const& e, uint32 entry)
-        {
-            if (!sObjectMgr->GetGameObjectTemplate(entry))
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u uses non-existent GameObject entry %u, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), entry);
-                return false;
-            }
-            return true;
-        }
-
-        bool IsSpellValid(SmartScriptHolder const& e, uint32 entry)
-        {
-            if (!sSpellMgr->GetSpellInfo(entry))
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u uses non-existent Spell entry %u, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), entry);
-                return false;
-            }
-            return true;
-        }
-
-        bool IsItemValid(SmartScriptHolder const& e, uint32 entry)
-        {
-            if (!sItemStore.LookupEntry(entry))
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u uses non-existent Item entry %u, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), entry);
-                return false;
-            }
-            return true;
-        }
-
-        bool IsTextEmoteValid(SmartScriptHolder const& e, uint32 entry)
-        {
-            if (!sEmotesTextStore.LookupEntry(entry))
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u uses non-existent Text Emote entry %u, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), entry);
-                return false;
-            }
-            return true;
-        }
-
-        bool IsEmoteValid(SmartScriptHolder const& e, uint32 entry)
-        {
-            if (!sEmotesStore.LookupEntry(entry))
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u uses non-existent Emote entry %u, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), entry);
-                return false;
-            }
-            return true;
-        }
-
-        bool IsAreaTriggerValid(SmartScriptHolder const& e, uint32 entry)
-        {
-            if (!sAreaTriggerStore.LookupEntry(entry))
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u uses non-existent AreaTrigger entry %u, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), entry);
-                return false;
-            }
-            return true;
-        }
-
-        bool IsSoundValid(SmartScriptHolder const& e, uint32 entry)
-        {
-            if (!sSoundKitStore.LookupEntry(entry))
-            {
-                TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry " SI64FMTD " SourceType %u Event %u Action %u uses non-existent Sound entry %u, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), entry);
-                return false;
-            }
-            return true;
-        }
-
+        bool NotNULL(SmartScriptHolder const& e, uint32 data);
+        bool IsCreatureValid(SmartScriptHolder const& e, uint32 entry);
+        bool IsQuestValid(SmartScriptHolder const& e, uint32 entry);
+        bool IsGameObjectValid(SmartScriptHolder const& e, uint32 entry);
+        bool IsSpellValid(SmartScriptHolder const& e, uint32 entry);
+        bool IsItemValid(SmartScriptHolder const& e, uint32 entry);
+        bool IsTextEmoteValid(SmartScriptHolder const& e, uint32 entry);
+        bool IsEmoteValid(SmartScriptHolder const& e, uint32 entry);
+        bool IsAreaTriggerValid(SmartScriptHolder const& e, uint32 entry);
+        bool IsSoundValid(SmartScriptHolder const& e, uint32 entry);
+        bool IsAnimKitValid(SmartScriptHolder const& e, uint32 entry);
+        bool IsSpellVisualKitValid(SmartScriptHolder const& e, uint32 entry);
         bool IsTextValid(SmartScriptHolder const& e, uint32 id);
 
         // Helpers

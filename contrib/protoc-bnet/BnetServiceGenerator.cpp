@@ -20,7 +20,8 @@ BnetServiceGenerator::BnetServiceGenerator(pb::ServiceDescriptor const* descript
     else
         vars_["dllexport"] = options.dllexport_decl + " ";
 
-    vars_["original_hash"] = "  typedef std::integral_constant<uint32, 0x" + pb::ToUpper(pb::ToHex(HashServiceName(descriptor_->options().GetExtension(Battlenet::original_fully_qualified_descriptor_name)))) + "u> OriginalHash;\n";
+    if (descriptor_->options().HasExtension(Battlenet::service_options))
+        vars_["original_hash"] = "  typedef std::integral_constant<uint32, 0x" + pb::ToUpper(pb::ToHex(HashServiceName(descriptor_->options().GetExtension(Battlenet::service_options).descriptor_name()))) + "u> OriginalHash;\n";
     vars_["name_hash"] = "  typedef std::integral_constant<uint32, 0x" + pb::ToUpper(pb::ToHex(HashServiceName(descriptor_->full_name()))) + "u> NameHash;\n";
 }
 
@@ -85,13 +86,13 @@ void BnetServiceGenerator::GenerateClientMethodSignatures(pb::io::Printer* print
     for (int i = 0; i < descriptor_->method_count(); i++)
     {
         pb::MethodDescriptor const* method = descriptor_->method(i);
-        if (!method->options().HasExtension(Battlenet::method_id))
+        if (!method->options().HasExtension(Battlenet::method_options))
             continue;
 
         std::map<std::string, std::string> sub_vars;
         sub_vars["name"] = method->name();
         sub_vars["full_name"] = descriptor_->name() + "." + method->name();
-        sub_vars["method_id"] = pb::SimpleItoa(method->options().GetExtension(Battlenet::method_id));
+        sub_vars["method_id"] = pb::SimpleItoa(method->options().GetExtension(Battlenet::method_options).id());
         sub_vars["input_type"] = pbcpp::ClassName(method->input_type(), true);
         sub_vars["output_type"] = pbcpp::ClassName(method->output_type(), true);
         sub_vars["input_type_name"] = method->input_type()->full_name();
@@ -108,7 +109,7 @@ void BnetServiceGenerator::GenerateServerMethodSignatures(pb::io::Printer* print
     for (int i = 0; i < descriptor_->method_count(); i++)
     {
         pb::MethodDescriptor const* method = descriptor_->method(i);
-        if (!method->options().HasExtension(Battlenet::method_id))
+        if (!method->options().HasExtension(Battlenet::method_options))
             continue;
 
         std::map<std::string, std::string> sub_vars;
@@ -117,7 +118,7 @@ void BnetServiceGenerator::GenerateServerMethodSignatures(pb::io::Printer* print
         sub_vars["output_type"] = pbcpp::ClassName(method->output_type(), true);
 
         if (method->output_type()->name() != "NO_RESPONSE")
-            printer->Print(sub_vars, "virtual uint32 Handle$name$($input_type$ const* request, $output_type$* response);\n");
+            printer->Print(sub_vars, "virtual uint32 Handle$name$($input_type$ const* request, $output_type$* response, std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)>& continuation);\n");
         else
             printer->Print(sub_vars, "virtual uint32 Handle$name$($input_type$ const* request);\n");
     }
@@ -161,14 +162,14 @@ void BnetServiceGenerator::GenerateClientMethodImplementations(pb::io::Printer* 
     for (int i = 0; i < descriptor_->method_count(); i++)
     {
         pb::MethodDescriptor const* method = descriptor_->method(i);
-        if (!method->options().HasExtension(Battlenet::method_id))
+        if (!method->options().HasExtension(Battlenet::method_options))
             continue;
 
         std::map<std::string, std::string> sub_vars;
         sub_vars["classname"] = vars_["classname"];
         sub_vars["name"] = method->name();
         sub_vars["full_name"] = descriptor_->name() + "." + method->name();
-        sub_vars["method_id"] = pb::SimpleItoa(method->options().GetExtension(Battlenet::method_id));
+        sub_vars["method_id"] = pb::SimpleItoa(method->options().GetExtension(Battlenet::method_options).id());
         sub_vars["input_type"] = pbcpp::ClassName(method->input_type(), true);
         sub_vars["output_type"] = pbcpp::ClassName(method->output_type(), true);
         sub_vars["input_type_name"] = method->input_type()->full_name();
@@ -191,7 +192,7 @@ void BnetServiceGenerator::GenerateClientMethodImplementations(pb::io::Printer* 
         else
         {
             printer->Print(sub_vars,
-                "void $classname$::$name$($input_type$ const* request) { \n"
+                "void $classname$::$name$($input_type$ const* request) {\n"
                 "  TC_LOG_DEBUG(\"service.protobuf\", \"%s Server called client method $full_name$($input_type_name${ %s })\",\n"
                 "    GetCallerInfo().c_str(), request->ShortDebugString().c_str());\n"
                 "  SendRequest(service_hash_, $method_id$, request);\n"
@@ -210,13 +211,14 @@ void BnetServiceGenerator::GenerateServerCallMethod(pb::io::Printer* printer)
     for (int i = 0; i < descriptor_->method_count(); i++)
     {
         pb::MethodDescriptor const* method = descriptor_->method(i);
-        if (!method->options().HasExtension(Battlenet::method_id))
+        if (!method->options().HasExtension(Battlenet::method_options))
             continue;
 
         std::map<std::string, std::string> sub_vars;
+        sub_vars["classname"] = vars_["classname"];
         sub_vars["name"] = method->name();
         sub_vars["full_name"] = descriptor_->name() + "." + method->name();
-        sub_vars["method_id"] = pb::SimpleItoa(method->options().GetExtension(Battlenet::method_id));
+        sub_vars["method_id"] = pb::SimpleItoa(method->options().GetExtension(Battlenet::method_options).id());
         sub_vars["input_type"] = pbcpp::ClassName(method->input_type(), true);
         sub_vars["output_type"] = pbcpp::ClassName(method->output_type(), true);
         sub_vars["input_type_name"] = method->input_type()->full_name();
@@ -230,20 +232,29 @@ void BnetServiceGenerator::GenerateServerCallMethod(pb::io::Printer* printer)
             "        SendResponse(service_hash_, $method_id$, token, ERROR_RPC_MALFORMED_REQUEST);\n"
             "        return;\n"
             "      }\n"
-            "\n"
             );
 
         if (method->output_type()->name() != "NO_RESPONSE")
         {
             printer->Print(sub_vars,
+                "      TC_LOG_DEBUG(\"service.protobuf\", \"%s Client called server method $full_name$($input_type_name${ %s }).\",\n"
+                "        GetCallerInfo().c_str(), request.ShortDebugString().c_str());\n"
+                "      std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)> continuation = [token](ServiceBase* service, uint32 status, ::google::protobuf::Message const* response)\n"
+                "      {\n"
+                "        ASSERT(response->GetDescriptor() == $output_type$::descriptor());\n"
+                "        $classname$* self = static_cast<$classname$*>(service);\n"
+                "        TC_LOG_DEBUG(\"service.protobuf\", \"%s Client called server method $full_name$() returned $output_type_name${ %s } status %u.\",\n"
+                "          self->GetCallerInfo().c_str(), response->ShortDebugString().c_str(), status);\n"
+                "        if (!status)\n"
+                "          self->SendResponse(self->service_hash_, $method_id$, token, response);\n"
+                "        else\n"
+                "          self->SendResponse(self->service_hash_, $method_id$, token, status);\n"
+                "      };\n"
                 "      $output_type$ response;\n"
-                "      uint32 status = Handle$name$(&request, &response);\n"
-                "      TC_LOG_DEBUG(\"service.protobuf\", \"%s Client called server method $full_name$($input_type_name${ %s }) returned $output_type_name${ %s } status %u.\",\n"
-                "        GetCallerInfo().c_str(), request.ShortDebugString().c_str(), response.ShortDebugString().c_str(), status);\n"
-                "      if (!status)\n"
-                "        SendResponse(service_hash_, $method_id$, token, &response);\n"
-                "      else\n"
-                "        SendResponse(service_hash_, $method_id$, token, status);\n");
+                "      uint32 status = Handle$name$(&request, &response, continuation);\n"
+                "      if (continuation)\n"
+                "        continuation(this, status, &response);\n"
+            );
         }
         else
         {
@@ -275,7 +286,7 @@ void BnetServiceGenerator::GenerateServerImplementations(pb::io::Printer* printe
     for (int i = 0; i < descriptor_->method_count(); i++)
     {
         pb::MethodDescriptor const* method = descriptor_->method(i);
-        if (!method->options().HasExtension(Battlenet::method_id))
+        if (!method->options().HasExtension(Battlenet::method_options))
             continue;
 
         std::map<std::string, std::string> sub_vars;
@@ -287,7 +298,7 @@ void BnetServiceGenerator::GenerateServerImplementations(pb::io::Printer* printe
 
         if (method->output_type()->name() != "NO_RESPONSE")
         {
-            printer->Print(sub_vars, "uint32 $classname$::Handle$name$($input_type$ const* request, $output_type$* response) {\n"
+            printer->Print(sub_vars, "uint32 $classname$::Handle$name$($input_type$ const* request, $output_type$* response, std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)>& continuation) {\n"
                 "  TC_LOG_ERROR(\"service.protobuf\", \"%s Client tried to call not implemented method $full_name$({ %s })\",\n"
                 "    GetCallerInfo().c_str(), request->ShortDebugString().c_str());\n"
                 "  return ERROR_RPC_NOT_IMPLEMENTED;\n"

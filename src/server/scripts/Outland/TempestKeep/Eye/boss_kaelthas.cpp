@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -24,8 +24,12 @@ SDCategory: Tempest Keep, The Eye
 EndScriptData */
 
 #include "ScriptMgr.h"
+#include "GameObject.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "ScriptedCreature.h"
-#include "Spell.h"
+#include "SpellInfo.h"
 #include "SpellScript.h"
 #include "the_eye.h"
 
@@ -329,8 +333,8 @@ struct advisorbase_ai : public ScriptedAI
         Initialize();
 
         me->SetStandState(UNIT_STAND_STATE_STAND);
-        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
-        me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_STUNNED);
+        me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
+        me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_STUNNED));
 
         //reset encounter
         if (instance->GetBossState(DATA_KAELTHAS) == IN_PROGRESS)
@@ -340,7 +344,7 @@ struct advisorbase_ai : public ScriptedAI
 
     void MoveInLineOfSight(Unit* who) override
     {
-        if (!who || _inFakeDeath || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+        if (!who || _inFakeDeath || me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
             return;
 
         ScriptedAI::MoveInLineOfSight(who);
@@ -348,7 +352,7 @@ struct advisorbase_ai : public ScriptedAI
 
     void AttackStart(Unit* who) override
     {
-        if (!who || _inFakeDeath || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+        if (!who || _inFakeDeath || me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
             return;
 
         ScriptedAI::AttackStart(who);
@@ -359,7 +363,7 @@ struct advisorbase_ai : public ScriptedAI
         if (spell->Id == SPELL_RESSURECTION)
         {
             _hasRessurrected = true;
-            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_STUNNED);
+            me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_STUNNED));
             me->SetStandState(UNIT_STAND_STATE_STAND);
             events.ScheduleEvent(EVENT_DELAYED_RESSURECTION, 2000);
         }
@@ -378,7 +382,7 @@ struct advisorbase_ai : public ScriptedAI
             me->RemoveAllAurasOnDeath();
             me->ModifyAuraState(AURA_STATE_HEALTHLESS_20_PERCENT, false);
             me->ModifyAuraState(AURA_STATE_HEALTHLESS_35_PERCENT, false);
-            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_STUNNED);
+            me->AddUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_STUNNED));
             me->SetTarget(ObjectGuid::Empty);
             me->SetStandState(UNIT_STAND_STATE_DEAD);
             me->GetMotionMaster()->Clear();
@@ -450,8 +454,8 @@ class boss_kaelthas : public CreatureScript
             {
                 Initialize();
                 DoAction(ACTION_PREPARE_ADVISORS);
-                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
-                me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_NONE);
+                me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+                me->SetEmoteState(EMOTE_ONESHOT_NONE);
                 me->SetDisableGravity(false);
                 me->SetTarget(ObjectGuid::Empty);
                 me->SetObjectScale(1.0f);
@@ -479,7 +483,7 @@ class boss_kaelthas : public CreatureScript
                 {
                     case ACTION_START_ENCOUNTER:
                         Talk(SAY_INTRO);
-                        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                        me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
 
                         _advisorGuid[ADVISOR_THALADRED] = instance->GetGuidData(DATA_THALADREDTHEDARKENER);
                         _advisorGuid[ADVISOR_SANGUINAR] = instance->GetGuidData(DATA_LORDSANGUINAR);
@@ -496,7 +500,7 @@ class boss_kaelthas : public CreatureScript
                             if (Creature* creature = ObjectAccessor::GetCreature(*me, _advisorGuid[i]))
                             {
                                 creature->Respawn(true);
-                                creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                                creature->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                                 creature->AI()->EnterEvadeMode();
                             }
                         }
@@ -596,7 +600,7 @@ class boss_kaelthas : public CreatureScript
                     case POINT_TRANSITION_CENTER_ASCENDING:
                         me->SetFacingTo(float(M_PI), true);
                         Talk(SAY_PHASE5_NUTS);
-                        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                        me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                         me->SetDisableGravity(true);
                         //me->SetHover(true); -- Set in sniffs, but breaks his visual.
                         events.ScheduleEvent(EVENT_TRANSITION_2, 2000);
@@ -615,7 +619,7 @@ class boss_kaelthas : public CreatureScript
                     case POINT_END_TRANSITION:
                         me->SetReactState(REACT_AGGRESSIVE);
                         me->InterruptNonMeleeSpells(false);
-                        me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                        me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                         me->RemoveAurasDueToSpell(SPELL_FULLPOWER);
 
                         if (Unit* target = SelectTarget(SELECT_TARGET_TOPAGGRO, 0))
@@ -669,13 +673,13 @@ class boss_kaelthas : public CreatureScript
                     switch (eventId)
                     {
                         case EVENT_START_ENCOUNTER:
-                            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED);
+                            me->AddUnitFlag(UNIT_FLAG_PACIFIED);
                             DoAction(ACTION_ACTIVE_ADVISOR);
                             break;
                         case EVENT_ACTIVE_ADVISOR:
                             if (Creature* advisor = ObjectAccessor::GetCreature(*me, _advisorGuid[_advisorCounter]))
                             {
-                                advisor->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                                advisor->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
 
                                 if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0))
                                     advisor->AI()->AttackStart(target);
@@ -705,7 +709,7 @@ class boss_kaelthas : public CreatureScript
                             // Sometimes people can collect Aggro in Phase 1-3. Reset threat before releasing Kael.
                             DoResetThreat();
 
-                            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED);
+                            me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED));
 
                             if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0))
                                 AttackStart(target);
@@ -738,7 +742,7 @@ class boss_kaelthas : public CreatureScript
                             events.ScheduleEvent(EVENT_SUMMON_PHOENIX, urand(45000, 60000), EVENT_GROUP_COMBAT, PHASE_COMBAT);
                             break;
                         case EVENT_END_TRANSITION:
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_NONE);
+                            me->SetEmoteState(EMOTE_ONESHOT_NONE);
                             DoCast(SPELL_FULLPOWER);
                             events.ScheduleEvent(EVENT_TRANSITION_4, 2000);
                             break;
@@ -803,7 +807,7 @@ class boss_kaelthas : public CreatureScript
                             me->RemoveAurasDueToSpell(SPELL_NETHER_BEAM_VISUAL3);
                             DoCast(me, SPELL_KAEL_EXPLODES3, true);
                             DoCast(me, SPELL_KAEL_STUNNED); // Core doesn't handle the emote properly while flying.
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_STATE_DROWNED);
+                            me->SetEmoteState(EMOTE_STATE_DROWNED);
 
                             // Destroy the surrounding environment.
                             if (GameObject* statue = instance->GetGameObject(DATA_KAEL_STATUE_LEFT))
@@ -843,7 +847,7 @@ class boss_kaelthas : public CreatureScript
                         default:
                             break;
                     }
-                    
+
                     if (me->HasUnitState(UNIT_STATE_CASTING) && !me->FindCurrentSpellBySpellId(SPELL_KAEL_GAINING_POWER) && !me->FindCurrentSpellBySpellId(SPELL_KAEL_STUNNED))
                         return;
                 }
@@ -863,7 +867,7 @@ class boss_kaelthas : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<boss_kaelthasAI>(creature);
+            return GetTheEyeAI<boss_kaelthasAI>(creature);
         }
 };
 
@@ -968,7 +972,7 @@ class boss_thaladred_the_darkener : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<boss_thaladred_the_darkenerAI>(creature);
+            return GetTheEyeAI<boss_thaladred_the_darkenerAI>(creature);
         }
 };
 
@@ -1032,7 +1036,7 @@ class boss_lord_sanguinar : public CreatureScript
         };
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<boss_lord_sanguinarAI>(creature);
+            return GetTheEyeAI<boss_lord_sanguinarAI>(creature);
         }
 };
 
@@ -1081,7 +1085,7 @@ class boss_grand_astromancer_capernian : public CreatureScript
 
             void AttackStart(Unit* who) override
             {
-                if (!who || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+                if (!who || me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                     return;
 
                 if (me->Attack(who, true))
@@ -1118,8 +1122,7 @@ class boss_grand_astromancer_capernian : public CreatureScript
                 //Conflagration_Timer
                 if (Conflagration_Timer <= diff)
                 {
-                    Unit* target = NULL;
-                    target = SelectTarget(SELECT_TARGET_RANDOM, 0);
+                    Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0);
 
                     if (target && me->IsWithinDistInMap(target, 30))
                         DoCast(target, SPELL_CONFLAGRATION);
@@ -1163,7 +1166,7 @@ class boss_grand_astromancer_capernian : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<boss_grand_astromancer_capernianAI>(creature);
+            return GetTheEyeAI<boss_grand_astromancer_capernianAI>(creature);
         }
 };
 
@@ -1242,7 +1245,7 @@ class boss_master_engineer_telonicus : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<boss_master_engineer_telonicusAI>(creature);
+            return GetTheEyeAI<boss_master_engineer_telonicusAI>(creature);
         }
 };
 
@@ -1275,7 +1278,7 @@ class npc_kael_flamestrike : public CreatureScript
             {
                 Initialize();
 
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 me->setFaction(14);
             }
 
@@ -1312,7 +1315,7 @@ class npc_kael_flamestrike : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_kael_flamestrikeAI(creature);
+            return GetTheEyeAI<npc_kael_flamestrikeAI>(creature);
         }
 };
 
@@ -1371,7 +1374,7 @@ class npc_phoenix_tk : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_phoenix_tkAI(creature);
+            return GetTheEyeAI<npc_phoenix_tkAI>(creature);
         }
 };
 
@@ -1437,7 +1440,7 @@ class npc_phoenix_egg_tk : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_phoenix_egg_tkAI(creature);
+            return GetTheEyeAI<npc_phoenix_egg_tkAI>(creature);
         }
 };
 
@@ -1459,11 +1462,7 @@ class spell_kael_gravity_lapse : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spell*/) override
             {
-                for (uint8 i = 0; i < 25; ++i)
-                    if (!sSpellMgr->GetSpellInfo(GravityLapseSpells[i]))
-                        return false;
-
-                return true;
+                return ValidateSpellInfo(GravityLapseSpells);
             }
 
             void HandleScript(SpellEffIndex /*effIndex*/)

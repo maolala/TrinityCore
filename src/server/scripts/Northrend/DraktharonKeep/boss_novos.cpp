@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,9 +16,13 @@
  */
 
 #include "ScriptMgr.h"
-#include "SpellScript.h"
-#include "ScriptedCreature.h"
 #include "drak_tharon_keep.h"
+#include "GameObject.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "ScriptedCreature.h"
+#include "SpellScript.h"
 
 enum Yells
 {
@@ -199,15 +203,13 @@ public:
             _bubbled = state;
             if (!state)
             {
-                if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                 if (me->HasUnitState(UNIT_STATE_CASTING))
                     me->CastStop();
             }
             else
             {
-                if (!me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
-                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                 DoCast(SPELL_ARCANE_FIELD);
             }
         }
@@ -393,9 +395,7 @@ class spell_novos_summon_minions : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spellInfo*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_SUMMON_COPY_OF_MINIONS))
-                    return false;
-                return true;
+                return ValidateSpellInfo({ SPELL_SUMMON_COPY_OF_MINIONS });
             }
 
             void HandleScript(SpellEffIndex /*effIndex*/)

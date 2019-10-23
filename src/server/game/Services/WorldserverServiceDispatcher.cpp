@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,13 +22,13 @@ Battlenet::WorldserverServiceDispatcher::WorldserverServiceDispatcher()
 {
     AddService<WorldserverService<account::v1::AccountService>>();
     AddService<WorldserverService<authentication::v1::AuthenticationService>>();
-    AddService<WorldserverService<challenge::v1::ChallengeService>>();
-    AddService<WorldserverService<channel::v1::ChannelService>>();
+    AddService<WorldserverService<club::v1::membership::ClubMembershipService>>();
     AddService<WorldserverService<connection::v1::ConnectionService>>();
     AddService<WorldserverService<friends::v1::FriendsService>>();
     AddService<GameUtilitiesService>();
     AddService<WorldserverService<presence::v1::PresenceService>>();
     AddService<WorldserverService<report::v1::ReportService>>();
+    AddService<WorldserverService<report::v2::ReportService>>();
     AddService<WorldserverService<resources::v1::ResourcesService>>();
     AddService<WorldserverService<user_manager::v1::UserManagerService>>();
 }
@@ -37,7 +37,7 @@ void Battlenet::WorldserverServiceDispatcher::Dispatch(WorldSession* session, ui
 {
     auto itr = _dispatchers.find(serviceHash);
     if (itr != _dispatchers.end())
-        itr->second(session, token, methodId, std::forward<MessageBuffer>(buffer));
+        itr->second(session, token, methodId, std::move(buffer));
     else
         TC_LOG_DEBUG("session.rpc", "%s tried to call invalid service 0x%X", session->GetPlayerInfo().c_str(), serviceHash);
 }

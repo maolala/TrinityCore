@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,8 +16,10 @@
  */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
 #include "ahnkahet.h"
+#include "InstanceScript.h"
+#include "ScriptedCreature.h"
+#include "TemporarySummon.h"
 
 enum Spells
 {
@@ -88,22 +90,18 @@ class boss_amanitar : public CreatureScript
                 for (uint8 i = 0; i < 30; ++i)
                 {
                     Position pos = me->GetRandomNearPosition(30.0f);
-                    pos.m_positionZ = me->GetMap()->GetHeight(pos.GetPositionX(), pos.GetPositionY(), MAX_HEIGHT) + 2.0f;
+                    me->UpdateGroundPositionZ(pos.GetPositionX(), pos.GetPositionY(), pos.m_positionZ);
 
                     if (Creature* trigger = me->SummonCreature(NPC_TRIGGER, pos))
                     {
                         Creature* temp1 = trigger->FindNearestCreature(NPC_HEALTHY_MUSHROOM, 4.0f, true);
                         Creature* temp2 = trigger->FindNearestCreature(NPC_POISONOUS_MUSHROOM, 4.0f, true);
-                        if (temp1 || temp2)
-                        {
-                            trigger->DisappearAndDie();
-                        }
-                        else
+                        if (!temp1 && !temp2)
                         {
                             u = 1 - u;
-                            trigger->DisappearAndDie();
                             me->SummonCreature(u > 0 ? NPC_POISONOUS_MUSHROOM : NPC_HEALTHY_MUSHROOM, pos, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 60 * IN_MILLISECONDS);
                         }
+                        trigger->DespawnOrUnsummon();
                     }
                 }
             }
@@ -175,7 +173,7 @@ public:
             events.Reset();
             events.ScheduleEvent(EVENT_AURA, 1 * IN_MILLISECONDS);
 
-            me->SetDisplayId(me->GetCreatureTemplate()->Modelid2);
+            me->SetDisplayFromModel(1);
             DoCast(SPELL_PUTRID_MUSHROOM);
 
             if (me->GetEntry() == NPC_POISONOUS_MUSHROOM)
@@ -227,7 +225,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_amanitar_mushroomsAI(creature);
+        return GetAhnKahetAI<npc_amanitar_mushroomsAI>(creature);
     }
 };
 

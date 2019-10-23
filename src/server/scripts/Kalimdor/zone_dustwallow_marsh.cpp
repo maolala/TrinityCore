@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -27,11 +27,13 @@ EndScriptData */
 EndContentData */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
+#include "MotionMaster.h"
+#include "Player.h"
+#include "QuestDef.h"
 #include "ScriptedEscortAI.h"
 #include "ScriptedGossip.h"
+#include "SpellInfo.h"
 #include "SpellScript.h"
-#include "Player.h"
 #include "WorldSession.h"
 
 /*######
@@ -201,7 +203,7 @@ public:
                 return;
 
             me->SetHomePosition(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), me->GetOrientation());
-            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC);
+            me->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
             SetCombatMovement(true);
 
             if (me->IsInCombat())
@@ -247,9 +249,7 @@ class spell_ooze_zap : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spellInfo*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_OOZE_ZAP))
-                    return false;
-                return true;
+                return ValidateSpellInfo({ SPELL_OOZE_ZAP });
             }
 
             SpellCastResult CheckRequirement()
@@ -294,9 +294,7 @@ class spell_ooze_zap_channel_end : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spellInfo*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_OOZE_ZAP_CHANNEL_END))
-                    return false;
-                return true;
+                return ValidateSpellInfo({ SPELL_OOZE_ZAP_CHANNEL_END });
             }
 
             void HandleDummy(SpellEffIndex effIndex)
@@ -330,9 +328,7 @@ class spell_energize_aoe : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spellInfo*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_ENERGIZED))
-                    return false;
-                return true;
+                return ValidateSpellInfo({ SPELL_ENERGIZED });
             }
 
             void FilterTargets(std::list<WorldObject*>& targets)

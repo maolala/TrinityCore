@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,17 +15,21 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "AccountMgr.h"
+#include "icecrown_citadel.h"
+#include "AreaBoundary.h"
+#include "Creature.h"
+#include "CreatureAI.h"
+#include "EventMap.h"
+#include "GameObject.h"
 #include "InstanceScript.h"
+#include "Map.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PoolMgr.h"
-#include "ScriptMgr.h"
-#include "ScriptedCreature.h"
+#include "TemporarySummon.h"
 #include "Transport.h"
 #include "TransportMgr.h"
-#include "WorldPacket.h"
-#include "icecrown_citadel.h"
+#include "WorldStatePackets.h"
 
 enum EventIds
 {
@@ -49,22 +53,20 @@ enum TimedEvents
 
 BossBoundaryData const boundaries =
 {
-    { DATA_LORD_MARROWGAR, new CircleBoundary(Position(-428.0f,2211.0f), 95.0) },
-    { DATA_LORD_MARROWGAR, new RectangleBoundary(-430.0f, -330.0f, 2110.0f, 2310.0f) },
-    { DATA_LADY_DEATHWHISPER, new RectangleBoundary(-670.0f, -520.0f, 2145.0f, 2280.0f) },
+    { DATA_LORD_MARROWGAR,        new CircleBoundary(Position(-428.0f,2211.0f), 95.0) },
+    { DATA_LORD_MARROWGAR,        new RectangleBoundary(-430.0f, -330.0f, 2110.0f, 2310.0f) },
+    { DATA_LADY_DEATHWHISPER,     new RectangleBoundary(-670.0f, -520.0f, 2145.0f, 2280.0f) },
     { DATA_DEATHBRINGER_SAURFANG, new RectangleBoundary(-565.0f, -465.0f, 2160.0f, 2260.0f) },
-
-    { DATA_ROTFACE, new RectangleBoundary(4385.0f, 4505.0f, 3082.0f, 3195.0f) },
-    { DATA_FESTERGUT, new RectangleBoundary(4205.0f, 4325.0f, 3082.0f, 3195.0f) },
-    { DATA_PROFESSOR_PUTRICIDE, new ParallelogramBoundary(Position(4356.0f, 3290.0f), Position(4435.0f, 3194.0f), Position(4280.0f, 3194.0f)) },
-    { DATA_PROFESSOR_PUTRICIDE, new RectangleBoundary(4280.0f, 4435.0f, 3150.0f, 4360.0f) },
-
-    { DATA_BLOOD_PRINCE_COUNCIL, new EllipseBoundary(Position(4660.95f, 2769.194f), 85.0, 60.0) },
+    { DATA_ROTFACE,               new RectangleBoundary(4385.0f, 4505.0f, 3082.0f, 3195.0f) },
+    { DATA_FESTERGUT,             new RectangleBoundary(4205.0f, 4325.0f, 3082.0f, 3195.0f) },
+    { DATA_PROFESSOR_PUTRICIDE,   new ParallelogramBoundary(Position(4356.0f, 3290.0f), Position(4435.0f, 3194.0f), Position(4280.0f, 3194.0f)) },
+    { DATA_PROFESSOR_PUTRICIDE,   new RectangleBoundary(4280.0f, 4435.0f, 3150.0f, 4360.0f) },
+    { DATA_BLOOD_PRINCE_COUNCIL,  new EllipseBoundary(Position(4660.95f, 2769.194f), 85.0, 60.0) },
     { DATA_BLOOD_QUEEN_LANA_THEL, new CircleBoundary(Position(4595.93f, 2769.365f), 64.0) },
-
-    { DATA_SISTER_SVALNA, new RectangleBoundary(4291.0f, 4423.0f, 2438.0f, 2653.0f) },
+    { DATA_BLOOD_QUEEN_LANA_THEL, new ZRangeBoundary(391.78f, 473.43f) },
+    { DATA_SISTER_SVALNA,         new RectangleBoundary(4291.0f, 4423.0f, 2438.0f, 2653.0f) },
     { DATA_VALITHRIA_DREAMWALKER, new RectangleBoundary(4112.5f, 4293.5f, 2385.0f, 2585.0f) },
-    { DATA_SINDRAGOSA, new EllipseBoundary(Position(4408.6f, 2484.0f), 100.0, 75.0) }
+    { DATA_SINDRAGOSA,            new EllipseBoundary(Position(4408.6f, 2484.0f), 100.0, 75.0) }
 };
 
 DoorData const doorData[] =
@@ -154,12 +156,12 @@ class instance_icecrown_citadel : public InstanceMapScript
             {
                 if (usable)
                 {
-                    go->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                    go->RemoveFlag(GO_FLAG_NOT_SELECTABLE);
                     go->SetGoState(GO_STATE_ACTIVE);
                 }
                 else
                 {
-                    go->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                    go->AddFlag(GO_FLAG_NOT_SELECTABLE);
                     go->SetGoState(GO_STATE_READY);
                 }
             }
@@ -370,7 +372,7 @@ class instance_icecrown_citadel : public InstanceMapScript
                         {
                             if (WeeklyQuestData[questIndex].creatureEntry == entry)
                             {
-                                uint8 diffIndex = uint8(instance->GetSpawnMode() & 1);
+                                uint8 diffIndex = instance->Is25ManRaid() ? 1 : 0;
                                 if (!sPoolMgr->IsSpawnedObject<Quest>(WeeklyQuestData[questIndex].questId[diffIndex]))
                                     return 0;
                                 break;
@@ -637,7 +639,7 @@ class instance_icecrown_citadel : public InstanceMapScript
                     case GO_CACHE_OF_THE_DREAMWALKER_25H:
                         if (Creature* valithria = instance->GetCreature(ValithriaDreamwalkerGUID))
                             go->SetLootRecipient(valithria->GetLootRecipient(), valithria->GetLootRecipientGroup());
-                        go->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_LOCKED | GO_FLAG_NOT_SELECTABLE | GO_FLAG_NODESPAWN);
+                        go->RemoveFlag(GameObjectFlags(GO_FLAG_LOCKED | GO_FLAG_NOT_SELECTABLE | GO_FLAG_NODESPAWN));
                         break;
                     case GO_ARTHAS_PLATFORM:
                         ArthasPlatformGUID = go->GetGUID();
@@ -765,11 +767,11 @@ class instance_icecrown_citadel : public InstanceMapScript
                         return ProfessorPutricideGUID;
                     case DATA_PUTRICIDE_TABLE:
                         return PutricideTableGUID;
-                    case DATA_PRINCE_KELESETH_GUID:
+                    case DATA_PRINCE_KELESETH:
                         return BloodCouncilGUIDs[0];
-                    case DATA_PRINCE_TALDARAM_GUID:
+                    case DATA_PRINCE_TALDARAM:
                         return BloodCouncilGUIDs[1];
-                    case DATA_PRINCE_VALANAR_GUID:
+                    case DATA_PRINCE_VALANAR:
                         return BloodCouncilGUIDs[2];
                     case DATA_BLOOD_PRINCES_CONTROL:
                         return BloodCouncilControllerGUID;
@@ -852,7 +854,7 @@ class instance_icecrown_citadel : public InstanceMapScript
                                 SetTeleporterState(teleporter, true);
 
                             if (GameObject* loot = instance->GetGameObject(GunshipArmoryGUID))
-                                loot->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_LOCKED | GO_FLAG_NOT_SELECTABLE | GO_FLAG_NODESPAWN);
+                                loot->RemoveFlag(GameObjectFlags(GO_FLAG_LOCKED | GO_FLAG_NOT_SELECTABLE | GO_FLAG_NODESPAWN));
                         }
                         else if (state == FAIL)
                             Events.ScheduleEvent(EVENT_RESPAWN_GUNSHIP, 30000);
@@ -866,7 +868,7 @@ class instance_icecrown_citadel : public InstanceMapScript
                                 {
                                     if (Creature* deathbringer = instance->GetCreature(DeathbringerSaurfangGUID))
                                         loot->SetLootRecipient(deathbringer->GetLootRecipient(), deathbringer->GetLootRecipientGroup());
-                                    loot->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_LOCKED | GO_FLAG_NOT_SELECTABLE | GO_FLAG_NODESPAWN);
+                                    loot->RemoveFlag(GameObjectFlags(GO_FLAG_LOCKED | GO_FLAG_NOT_SELECTABLE | GO_FLAG_NODESPAWN));
                                 }
 
                                 if (GameObject* teleporter = instance->GetGameObject(TeleporterUpperSpireGUID))
@@ -959,7 +961,7 @@ class instance_icecrown_citadel : public InstanceMapScript
                     case DATA_VALITHRIA_DREAMWALKER:
                         if (state == DONE)
                         {
-                            if (sPoolMgr->IsSpawnedObject<Quest>(WeeklyQuestData[8].questId[instance->GetSpawnMode() & 1]))
+                            if (sPoolMgr->IsSpawnedObject<Quest>(WeeklyQuestData[8].questId[instance->Is25ManRaid() ? 1 : 0]))
                                 instance->SummonCreature(NPC_VALITHRIA_DREAMWALKER_QUEST, ValithriaSpawnPos);
                             if (GameObject* teleporter = instance->GetGameObject(TeleporterSindragosaGUID))
                                 SetTeleporterState(teleporter, true);
@@ -1064,7 +1066,7 @@ class instance_icecrown_citadel : public InstanceMapScript
                             break;
 
                         // 5 is the index of Blood Quickening
-                        if (!sPoolMgr->IsSpawnedObject<Quest>(WeeklyQuestData[5].questId[instance->GetSpawnMode() & 1]))
+                        if (!sPoolMgr->IsSpawnedObject<Quest>(WeeklyQuestData[5].questId[instance->Is25ManRaid() ? 1 : 0]))
                             break;
 
                         switch (data)
@@ -1300,7 +1302,7 @@ class instance_icecrown_citadel : public InstanceMapScript
                         teleporter->SetGoState(GO_STATE_ACTIVE);
 
                         std::list<Creature*> stalkers;
-                        GetCreatureListWithEntryInGrid(stalkers, teleporter, NPC_INVISIBLE_STALKER, 100.0f);
+                        teleporter->GetCreatureListWithEntryInGrid(stalkers, NPC_INVISIBLE_STALKER, 100.0f);
                         if (stalkers.empty())
                             return;
 
@@ -1446,7 +1448,7 @@ class instance_icecrown_citadel : public InstanceMapScript
                         {
                             terenas->AI()->DoAction(ACTION_FROSTMOURNE_INTRO);
                             std::list<Creature*> triggers;
-                            GetCreatureListWithEntryInGrid(triggers, terenas, NPC_WORLD_TRIGGER_INFINITE_AOI, 100.0f);
+                            terenas->GetCreatureListWithEntryInGrid(triggers, NPC_WORLD_TRIGGER_INFINITE_AOI, 100.0f);
                             if (!triggers.empty())
                             {
                                 triggers.sort(Trinity::ObjectDistanceOrderPred(terenas, false));

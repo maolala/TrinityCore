@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,6 +16,8 @@
  */
 
 #include "ScriptMgr.h"
+#include "InstanceScript.h"
+#include "ObjectAccessor.h"
 #include "ScriptedCreature.h"
 #include "SpellAuras.h"
 #include "vault_of_archavon.h"
@@ -171,7 +173,7 @@ class boss_emalon : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new boss_emalonAI(creature);
+            return GetVaultOfArchavonAI<boss_emalonAI>(creature);
         }
 };
 
@@ -277,7 +279,7 @@ class npc_tempest_minion : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_tempest_minionAI>(creature);
+            return GetVaultOfArchavonAI<npc_tempest_minionAI>(creature);
         }
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,12 +22,16 @@ Comment: All arena team related commands
 Category: commandscripts
 EndScriptData */
 
-#include "ObjectMgr.h"
+#include "ScriptMgr.h"
+#include "ArenaTeamMgr.h"
+#include "CharacterCache.h"
 #include "Chat.h"
 #include "Language.h"
-#include "ArenaTeamMgr.h"
+#include "Log.h"
+#include "ObjectMgr.h"
 #include "Player.h"
-#include "ScriptMgr.h"
+#include "RBAC.h"
+#include "WorldSession.h"
 
 class arena_commandscript : public CommandScript
 {
@@ -83,7 +87,7 @@ public:
 
         if (type == 2 || type == 3 || type == 5 )
         {
-            if (Player::GetArenaTeamIdFromDB(target->GetGUID(), type) != 0)
+            if (sCharacterCache->GetCharacterArenaTeamIdByGuid(target->GetGUID(), type) != 0)
             {
                 handler->PSendSysMessage(LANG_ARENA_ERROR_SIZE, target->GetName().c_str());
                 handler->SetSentErrorMessage(true);
@@ -118,7 +122,7 @@ public:
         if (!*args)
             return false;
 
-        uint32 teamId = atoi((char*)args);
+        uint32 teamId = atoul(args);
         if (!teamId)
             return false;
 
@@ -225,7 +229,7 @@ public:
         if (!idStr)
             return false;
 
-        uint32 teamId = atoi(idStr);
+        uint32 teamId = atoul(idStr);
         if (!teamId)
             return false;
 
@@ -274,7 +278,7 @@ public:
         arena->SetCaptain(targetGuid);
 
         std::string oldCaptainName;
-        if (!ObjectMgr::GetPlayerNameByGUID(arena->GetCaptain(), oldCaptainName))
+        if (!sCharacterCache->GetCharacterNameByGuid(arena->GetCaptain(), oldCaptainName))
         {
             handler->SetSentErrorMessage(true);
             return false;
@@ -297,7 +301,7 @@ public:
         if (!*args)
             return false;
 
-        uint32 teamId = atoi((char*)args);
+        uint32 teamId = atoul(args);
         if (!teamId)
             return false;
 

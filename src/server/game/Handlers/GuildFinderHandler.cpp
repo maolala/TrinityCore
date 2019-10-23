@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,14 +15,17 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "CharacterCache.h"
 #include "WorldSession.h"
-#include "WorldPacket.h"
-#include "Object.h"
-#include "SharedDefines.h"
+#include "Guild.h"
 #include "GuildFinderMgr.h"
-#include "GuildMgr.h"
 #include "GuildFinderPackets.h"
+#include "GuildMgr.h"
+#include "Object.h"
+#include "Player.h"
+#include "SharedDefines.h"
 #include "World.h"
+#include "WorldPacket.h"
 
 void WorldSession::HandleGuildFinderAddRecruit(WorldPackets::GuildFinder::LFGuildAddRecruit& lfGuildAddRecruit)
 {
@@ -180,7 +183,7 @@ void WorldSession::HandleGuildFinderGetRecruits(WorldPackets::GuildFinder::LFGui
             recruitData.Availability = recruitRequestPair.second.GetAvailability();
             recruitData.SecondsSinceCreated = now - recruitRequestPair.second.GetSubmitTime();
             recruitData.SecondsUntilExpiration = recruitRequestPair.second.GetExpiryTime() - now;
-            if (CharacterInfo const* charInfo = sWorld->GetCharacterInfo(recruitRequestPair.first))
+            if (CharacterCacheEntry const* charInfo = sCharacterCache->GetCharacterCacheByGuid(recruitRequestPair.first))
             {
                 recruitData.Name = charInfo->Name;
                 recruitData.CharacterClass = charInfo->Class;
@@ -223,6 +226,9 @@ void WorldSession::HandleGuildFinderSetGuildPost(WorldPackets::GuildFinder::LFGu
         return;
 
     Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId());
+    if (!guild)
+        return;
+
     // Player must be guild master
     if (guild->GetLeaderGUID() != player->GetGUID())
         return;

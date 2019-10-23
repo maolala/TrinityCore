@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,16 +15,19 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "WorldSession.h"
+#include "BlackMarketMgr.h"
 #include "BlackMarketPackets.h"
+#include "DatabaseEnv.h"
+#include "Item.h"
+#include "Log.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "WorldPacket.h"
-#include "WorldSession.h"
-#include "BlackMarketMgr.h"
 
 void WorldSession::HandleBlackMarketOpen(WorldPackets::BlackMarket::BlackMarketOpen& blackMarketOpen)
 {
-    Creature* unit = GetPlayer()->GetNPCIfCanInteractWith(blackMarketOpen.Guid, UNIT_NPC_FLAG_BLACK_MARKET | UNIT_NPC_FLAG_BLACK_MARKET_VIEW);
+    Creature* unit = GetPlayer()->GetNPCIfCanInteractWith(blackMarketOpen.Guid, UNIT_NPC_FLAG_BLACK_MARKET, UNIT_NPC_FLAG_2_BLACK_MARKET_VIEW);
     if (!unit)
     {
         TC_LOG_DEBUG("network", "WORLD: HandleBlackMarketHello - Unit (GUID: %s) not found or you can't interact with him.", blackMarketOpen.Guid.ToString().c_str());
@@ -51,7 +54,7 @@ void WorldSession::HandleBlackMarketRequestItems(WorldPackets::BlackMarket::Blac
     if (!sBlackMarketMgr->IsEnabled())
         return;
 
-    Creature* unit = GetPlayer()->GetNPCIfCanInteractWith(blackMarketRequestItems.Guid, UNIT_NPC_FLAG_BLACK_MARKET | UNIT_NPC_FLAG_BLACK_MARKET_VIEW);
+    Creature* unit = GetPlayer()->GetNPCIfCanInteractWith(blackMarketRequestItems.Guid, UNIT_NPC_FLAG_BLACK_MARKET, UNIT_NPC_FLAG_2_BLACK_MARKET_VIEW);
     if (!unit)
     {
         TC_LOG_DEBUG("network", "WORLD: HandleBlackMarketRequestItems - Unit (GUID: %s) not found or you can't interact with him.", blackMarketRequestItems.Guid.ToString().c_str());
@@ -69,7 +72,7 @@ void WorldSession::HandleBlackMarketBidOnItem(WorldPackets::BlackMarket::BlackMa
         return;
 
     Player* player = GetPlayer();
-    Creature* unit = player->GetNPCIfCanInteractWith(blackMarketBidOnItem.Guid, UNIT_NPC_FLAG_BLACK_MARKET);
+    Creature* unit = player->GetNPCIfCanInteractWith(blackMarketBidOnItem.Guid, UNIT_NPC_FLAG_BLACK_MARKET, UNIT_NPC_FLAG_2_NONE);
     if (!unit)
     {
         TC_LOG_DEBUG("network", "WORLD: HandleBlackMarketBidOnItem - Unit (GUID: %s) not found or you can't interact with him.", blackMarketBidOnItem.Guid.ToString().c_str());
@@ -112,7 +115,7 @@ void WorldSession::HandleBlackMarketBidOnItem(WorldPackets::BlackMarket::BlackMa
         return;
     }
 
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
     sBlackMarketMgr->SendAuctionOutbidMail(entry, trans);
     entry->PlaceBid(blackMarketBidOnItem.BidAmount, player, trans);
@@ -139,7 +142,6 @@ void WorldSession::SendBlackMarketWonNotification(BlackMarketEntry const* entry,
 
     packet.MarketID = entry->GetMarketId();
     packet.Item.Initialize(item);
-    packet.RandomPropertiesID = item->GetItemRandomPropertyId();
 
     SendPacket(packet.Write());
 }
@@ -150,7 +152,7 @@ void WorldSession::SendBlackMarketOutbidNotification(BlackMarketTemplate const* 
 
     packet.MarketID = templ->MarketID;
     packet.Item = templ->Item;
-    packet.RandomPropertiesID = templ->Item.RandomPropertiesID;
+    packet.RandomPropertiesID = 0;
 
     SendPacket(packet.Write());
 }

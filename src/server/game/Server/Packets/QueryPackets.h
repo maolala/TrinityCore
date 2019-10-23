@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,12 +19,18 @@
 #define QueryPackets_h__
 
 #include "Packet.h"
-#include "Creature.h"
+#include "AuthenticationPackets.h"
 #include "NPCHandler.h"
-#include "G3D/Vector3.h"
-#include "DB2Stores.h"
+#include "ObjectGuid.h"
+#include "PacketUtilities.h"
+#include "Position.h"
+#include "QuestDef.h"
+#include "SharedDefines.h"
+#include "UnitDefines.h"
+#include <array>
 
 class Player;
+struct QuestPOIData;
 
 namespace WorldPackets
 {
@@ -40,14 +46,34 @@ namespace WorldPackets
             uint32 CreatureID = 0;
         };
 
+        struct CreatureXDisplay
+        {
+            uint32 CreatureDisplayID = 0;
+            float Scale = 1.0f;
+            float Probability = 1.0f;
+        };
+
+        struct CreatureDisplayStats
+        {
+            float TotalProbability = 0.0f;
+            std::vector<CreatureXDisplay> CreatureDisplay;
+        };
+
         struct CreatureStats
         {
+            CreatureStats()
+            {
+                Flags.fill(0);
+                ProxyCreatureID.fill(0);
+            }
+
             std::string Title;
             std::string TitleAlt;
             std::string CursorName;
             int32 CreatureType = 0;
             int32 CreatureFamily = 0;
             int32 Classification = 0;
+            CreatureDisplayStats Display;
             float HpMulti = 0.0f;
             float EnergyMulti = 0.0f;
             bool Leader = false;
@@ -56,11 +82,14 @@ namespace WorldPackets
             int32 HealthScalingExpansion = 0;
             uint32 RequiredExpansion = 0;
             uint32 VignetteID = 0;
-            uint32 Flags[2];
-            uint32 ProxyCreatureID[MAX_KILL_CREDIT];
-            uint32 CreatureDisplayID[MAX_CREATURE_MODELS];
-            std::string Name[MAX_CREATURE_NAMES];
-            std::string NameAlt[MAX_CREATURE_NAMES];
+            int32 Class = 0;
+            float FadeRegionRadius = 0.0f;
+            int32 WidgetSetID = 0;
+            int32 WidgetSetUnitConditionID = 0;
+            std::array<uint32, 2> Flags;
+            std::array<uint32, 2> ProxyCreatureID;
+            std::array<std::string, 4> Name;
+            std::array<std::string, 4> NameAlt;
         };
 
         class QueryCreatureResponse final : public ServerPacket
@@ -100,6 +129,7 @@ namespace WorldPackets
             ObjectGuid BnetAccountID;
             ObjectGuid GuidActual;
             std::string Name;
+            uint64 GuildClubMemberID = 0;   // same as bgs.protocol.club.v1.MemberId.unique_id
             uint32 VirtualRealmAddress = 0;
             uint8 Race = RACE_NONE;
             uint8 Sex = GENDER_NONE;
@@ -172,49 +202,8 @@ namespace WorldPackets
 
             uint32 TextID = 0;
             bool Allow = false;
-            float Probabilities[MAX_NPC_TEXT_OPTIONS];
-            uint32 BroadcastTextID[MAX_NPC_TEXT_OPTIONS];
-        };
-
-        class DBQueryBulk final : public ClientPacket
-        {
-        public:
-            struct DBQueryRecord
-            {
-                ObjectGuid GUID;
-                uint32 RecordID = 0;
-            };
-
-            DBQueryBulk(WorldPacket&& packet) : ClientPacket(CMSG_DB_QUERY_BULK, std::move(packet)) { }
-
-            void Read() override;
-
-            uint32 TableHash = 0;
-            std::vector<DBQueryRecord> Queries;
-        };
-
-        class DBReply final : public ServerPacket
-        {
-        public:
-            DBReply() : ServerPacket(SMSG_DB_REPLY, 12) { }
-
-            WorldPacket const* Write() override;
-
-            uint32 TableHash = 0;
-            uint32 Timestamp = 0;
-            uint32 RecordID = 0;
-            bool Allow = false;
-            ByteBuffer Data;
-        };
-
-        class HotfixNotifyBlob final : public ServerPacket
-        {
-        public:
-            HotfixNotifyBlob() : ServerPacket(SMSG_HOTFIX_NOTIFY_BLOB, 4) { }
-
-            WorldPacket const* Write() override;
-
-            HotfixData const* Hotfixes = nullptr;
+            std::array<float, MAX_NPC_TEXT_OPTIONS> Probabilities;
+            std::array<uint32, MAX_NPC_TEXT_OPTIONS> BroadcastTextID;
         };
 
         class QueryGameObject final : public ClientPacket
@@ -273,7 +262,7 @@ namespace WorldPackets
 
             ObjectGuid Player;
             ObjectGuid Transport;
-            G3D::Vector3 Position;
+            TaggedPosition<::Position::XYZ> Position;
             int32 ActualMapID = 0;
             int32 MapID = 0;
             bool Valid = false;
@@ -298,7 +287,7 @@ namespace WorldPackets
             WorldPacket const* Write() override;
 
             ObjectGuid Player;
-            G3D::Vector3 Position;
+            TaggedPosition<::Position::XYZ> Position;
             float Facing = 0.0f;
         };
 
@@ -328,36 +317,7 @@ namespace WorldPackets
             void Read() override;
 
             int32 MissingQuestCount = 0;
-            int32 MissingQuestPOIs[50];
-        };
-
-        struct QuestPOIBlobPoint
-        {
-            int32 X = 0;
-            int32 Y = 0;
-        };
-
-        struct QuestPOIBlobData
-        {
-            int32 BlobIndex = 0;
-            int32 ObjectiveIndex = 0;
-            int32 QuestObjectiveID = 0;
-            int32 QuestObjectID = 0;
-            int32 MapID = 0;
-            int32 WorldMapAreaID = 0;
-            int32 Floor = 0;
-            int32 Priority = 0;
-            int32 Flags = 0;
-            int32 WorldEffectID = 0;
-            int32 PlayerConditionID = 0;
-            int32 UnkWoD1 = 0;
-            std::vector<QuestPOIBlobPoint> QuestPOIBlobPointStats;
-        };
-
-        struct QuestPOIData
-        {
-            int32 QuestID = 0;
-            std::vector<QuestPOIBlobData> QuestPOIBlobDataStats;
+            std::array<int32, 100> MissingQuestPOIs;
         };
 
         class QuestPOIQueryResponse final : public ServerPacket
@@ -367,7 +327,7 @@ namespace WorldPackets
 
             WorldPacket const* Write() override;
 
-            std::vector<QuestPOIData> QuestPOIDataStats;
+            std::vector<QuestPOIData const*> QuestPOIDataStats;
         };
 
         class QueryQuestCompletionNPCs final : public ClientPacket
@@ -377,7 +337,7 @@ namespace WorldPackets
 
             void Read() override;
 
-            std::vector<int32> QuestCompletionNPCs;
+            Array<int32, 100> QuestCompletionNPCs;
         };
 
         struct QuestCompletionNPC
@@ -448,10 +408,33 @@ namespace WorldPackets
             bool Valid = false;
             ItemTextCache Item;
         };
+
+        class QueryRealmName final : public ClientPacket
+        {
+        public:
+            QueryRealmName(WorldPacket&& packet) : ClientPacket(CMSG_QUERY_REALM_NAME, std::move(packet)) { }
+
+            void Read() override;
+
+            uint32 VirtualRealmAddress = 0;
+        };
+
+        class RealmQueryResponse final : public ServerPacket
+        {
+        public:
+            RealmQueryResponse() : ServerPacket(SMSG_REALM_QUERY_RESPONSE) { }
+
+            WorldPacket const* Write() override;
+
+            uint32 VirtualRealmAddress = 0;
+            uint8 LookupState = 0;
+            WorldPackets::Auth::VirtualRealmNameInfo NameInfo;
+        };
     }
 }
 
 ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Query::PlayerGuidLookupHint const& lookupHint);
 ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Query::PlayerGuidLookupData const& lookupData);
+ByteBuffer& operator<<(ByteBuffer& data, QuestPOIData const& questPOIData);
 
 #endif // QueryPackets_h__

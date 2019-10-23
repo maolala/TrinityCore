@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,31 +15,50 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Chat.h"
-#include "ScriptMgr.h"
 #include "AccountMgr.h"
 #include "ArenaTeamMgr.h"
 #include "CellImpl.h"
+#include "CharacterCache.h"
+#include "Chat.h"
+#include "DatabaseEnv.h"
+#include "DB2Stores.h"
+#include "DisableMgr.h"
 #include "GridNotifiers.h"
 #include "Group.h"
+#include "GroupMgr.h"
 #include "InstanceSaveMgr.h"
+#include "IpAddress.h"
+#include "IPLocation.h"
+#include "Item.h"
 #include "Language.h"
+#include "LFG.h"
+#include "Log.h"
+#include "MapManager.h"
+#include "MiscPackets.h"
+#include "MMapFactory.h"
 #include "MovementGenerator.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Opcodes.h"
-#include "SpellAuras.h"
-#include "TargetedMovementGenerator.h"
-#include "WeatherMgr.h"
-#include "Player.h"
 #include "Pet.h"
-#include "LFG.h"
-#include "GroupMgr.h"
-#include "MMapFactory.h"
-#include "DisableMgr.h"
+#include "PhasingHandler.h"
+#include "Player.h"
+#include "Realm.h"
+#include "ScriptMgr.h"
+#include "SpellAuras.h"
 #include "SpellHistory.h"
-#include "MiscPackets.h"
+#include "SpellMgr.h"
+#include "TargetedMovementGenerator.h"
 #include "Transport.h"
-#include "MapManager.h"
+#include "Weather.h"
+#include "WeatherMgr.h"
+#include "World.h"
+#include "WorldSession.h"
+
+ // temporary hack until database includes are sorted out (don't want to pull in Windows.h everywhere from mysql.h)
+#ifdef GetClassName
+#undef GetClassName
+#endif
 
 class misc_commandscript : public CommandScript
 {
@@ -109,7 +128,7 @@ public:
     {
         if (sWorld->getBoolConfig(CONFIG_BATTLEGROUND_STORE_STATISTICS_ENABLE))
         {
-            PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PVPSTATS_FACTIONS_OVERALL);
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PVPSTATS_FACTIONS_OVERALL);
             PreparedQueryResult result = CharacterDatabase.Query(stmt);
 
             if (result)
@@ -138,7 +157,7 @@ public:
     {
         if (!*args)
         {
-            if (handler->GetSession()->GetPlayer()->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_DEVELOPER))
+            if (handler->GetSession()->GetPlayer()->HasPlayerFlag(PLAYER_FLAGS_DEVELOPER))
                 handler->GetSession()->SendNotification(LANG_DEV_ON);
             else
                 handler->GetSession()->SendNotification(LANG_DEV_OFF);
@@ -149,14 +168,14 @@ public:
 
         if (argstr == "on")
         {
-            handler->GetSession()->GetPlayer()->SetFlag(PLAYER_FLAGS, PLAYER_FLAGS_DEVELOPER);
+            handler->GetSession()->GetPlayer()->AddPlayerFlag(PLAYER_FLAGS_DEVELOPER);
             handler->GetSession()->SendNotification(LANG_DEV_ON);
             return true;
         }
 
         if (argstr == "off")
         {
-            handler->GetSession()->GetPlayer()->RemoveFlag(PLAYER_FLAGS, PLAYER_FLAGS_DEVELOPER);
+            handler->GetSession()->GetPlayer()->RemovePlayerFlag(PLAYER_FLAGS_DEVELOPER);
             handler->GetSession()->SendNotification(LANG_DEV_OFF);
             return true;
         }
@@ -168,19 +187,50 @@ public:
 
     static bool HandleGPSCommand(ChatHandler* handler, char const* args)
     {
-        WorldObject* object = NULL;
+        WorldObject* object = nullptr;
         if (*args)
         {
-            ObjectGuid guid = handler->extractGuidFromLink((char*)args);
-            if (!guid.IsEmpty())
-                object = (WorldObject*)ObjectAccessor::GetObjectByTypeMask(*handler->GetSession()->GetPlayer(), guid, TYPEMASK_UNIT | TYPEMASK_GAMEOBJECT);
-
-            if (!object)
-            {
-                handler->SendSysMessage(LANG_PLAYER_NOT_FOUND);
-                handler->SetSentErrorMessage(true);
+            HighGuid guidHigh;
+            ObjectGuid::LowType guidLow = handler->extractLowGuidFromLink((char*)args, guidHigh);
+            if (!guidLow)
                 return false;
+            switch (guidHigh)
+            {
+                case HighGuid::Player:
+                {
+                    object = ObjectAccessor::FindConnectedPlayer(ObjectGuid::Create<HighGuid::Player>(guidLow));
+                    if (!object)
+                    {
+                        handler->SendSysMessage(LANG_PLAYER_NOT_FOUND);
+                        handler->SetSentErrorMessage(true);
+                    }
+                    break;
+                }
+                case HighGuid::Creature:
+                {
+                    object = handler->GetCreatureFromPlayerMapByDbGuid(guidLow);
+                    if (!object)
+                    {
+                        handler->SendSysMessage(LANG_COMMAND_NOCREATUREFOUND);
+                        handler->SetSentErrorMessage(true);
+                    }
+                    break;
+                }
+                case HighGuid::GameObject:
+                {
+                    object = handler->GetObjectFromPlayerMapByDbGuid(guidLow);
+                    if (!object)
+                    {
+                        handler->SendSysMessage(LANG_COMMAND_NOGAMEOBJECTFOUND);
+                        handler->SetSentErrorMessage(true);
+                    }
+                    break;
+                }
+                default:
+                    return false;
             }
+            if (!object)
+                return false;
         }
         else
         {
@@ -211,8 +261,8 @@ public:
         sDB2Manager.Map2ZoneCoordinates(zoneId, zoneX, zoneY);
 
         Map const* map = object->GetMap();
-        float groundZ = map->GetHeight(object->GetPhaseMask(), object->GetPositionX(), object->GetPositionY(), MAX_HEIGHT);
-        float floorZ = map->GetHeight(object->GetPhaseMask(), object->GetPositionX(), object->GetPositionY(), object->GetPositionZ());
+        float groundZ = map->GetHeight(object->GetPhaseShift(), object->GetPositionX(), object->GetPositionY(), MAX_HEIGHT);
+        float floorZ = map->GetHeight(object->GetPhaseShift(), object->GetPositionX(), object->GetPositionY(), object->GetPositionZ());
 
         GridCoord gridCoord = Trinity::ComputeGridCoord(object->GetPositionX(), object->GetPositionY());
 
@@ -221,11 +271,11 @@ public:
 
         uint32 haveMap = Map::ExistMap(mapId, gridX, gridY) ? 1 : 0;
         uint32 haveVMap = Map::ExistVMap(mapId, gridX, gridY) ? 1 : 0;
-        uint32 haveMMap = (DisableMgr::IsPathfindingEnabled(mapId) && MMAP::MMapFactory::createOrGetMMapManager()->GetNavMesh(handler->GetSession()->GetPlayer()->GetMapId(), handler->GetSession()->GetPlayer()->GetTerrainSwaps())) ? 1 : 0;
+        uint32 haveMMap = (DisableMgr::IsPathfindingEnabled(mapId) && MMAP::MMapFactory::createOrGetMMapManager()->GetNavMesh(handler->GetSession()->GetPlayer()->GetMapId())) ? 1 : 0;
 
         if (haveVMap)
         {
-            if (map->IsOutdoors(object->GetPositionX(), object->GetPositionY(), object->GetPositionZ()))
+            if (map->IsOutdoors(object->GetPhaseShift(), object->GetPositionX(), object->GetPositionY(), object->GetPositionZ()))
                 handler->PSendSysMessage(LANG_GPS_POSITION_OUTDOORS);
             else
                 handler->PSendSysMessage(LANG_GPS_POSITION_INDOORS);
@@ -239,7 +289,6 @@ public:
             mapId, (mapEntry ? mapEntry->MapName->Str[handler->GetSessionDbcLocale()] : unknown),
             zoneId, (zoneEntry ? zoneEntry->AreaName->Str[handler->GetSessionDbcLocale()] : unknown),
             areaId, (areaEntry ? areaEntry->AreaName->Str[handler->GetSessionDbcLocale()] : unknown),
-            object->GetPhaseMask(), StringJoin(object->GetPhases(), ", ").c_str(),
             object->GetPositionX(), object->GetPositionY(), object->GetPositionZ(), object->GetOrientation());
         if (Transport* transport = object->GetTransport())
             handler->PSendSysMessage(LANG_TRANSPORT_POSITION,
@@ -250,25 +299,12 @@ public:
             zoneX, zoneY, groundZ, floorZ, haveMap, haveVMap, haveMMap);
 
         LiquidData liquidStatus;
-        ZLiquidStatus status = map->getLiquidStatus(object->GetPositionX(), object->GetPositionY(), object->GetPositionZ(), MAP_ALL_LIQUIDS, &liquidStatus);
+        ZLiquidStatus status = map->getLiquidStatus(object->GetPhaseShift(), object->GetPositionX(), object->GetPositionY(), object->GetPositionZ(), MAP_ALL_LIQUIDS, &liquidStatus);
 
         if (status)
             handler->PSendSysMessage(LANG_LIQUID_STATUS, liquidStatus.level, liquidStatus.depth_level, liquidStatus.entry, liquidStatus.type_flags, status);
 
-        if (!object->GetTerrainSwaps().empty())
-        {
-            std::stringstream ss;
-            for (uint32 swap : object->GetTerrainSwaps())
-                ss << swap << " ";
-            handler->PSendSysMessage("Target's active terrain swaps: %s", ss.str().c_str());
-        }
-        if (!object->GetWorldMapAreaSwaps().empty())
-        {
-            std::stringstream ss;
-            for (uint32 swap : object->GetWorldMapAreaSwaps())
-                ss << swap << " ";
-            handler->PSendSysMessage("Target's active world map area swaps: %s", ss.str().c_str());
-        }
+        PhasingHandler::PrintToChat(handler, object->GetPhaseShift());
 
         return true;
     }
@@ -432,7 +468,8 @@ public:
             target->GetContactPoint(_player, x, y, z);
 
             _player->TeleportTo(target->GetMapId(), x, y, z, _player->GetAngle(target), TELE_TO_GM_MODE);
-            _player->CopyPhaseFrom(target, true);
+            PhasingHandler::InheritPhaseShift(_player, target);
+            _player->UpdateObjectVisibility();
         }
         else
         {
@@ -556,7 +593,8 @@ public:
             float x, y, z;
             handler->GetSession()->GetPlayer()->GetClosePoint(x, y, z, target->GetObjectSize());
             target->TeleportTo(handler->GetSession()->GetPlayer()->GetMapId(), x, y, z, target->GetOrientation());
-            target->CopyPhaseFrom(handler->GetSession()->GetPlayer(), true);
+            PhasingHandler::InheritPhaseShift(target, handler->GetSession()->GetPlayer());
+            target->UpdateObjectVisibility();
         }
         else
         {
@@ -569,7 +607,7 @@ public:
             handler->PSendSysMessage(LANG_SUMMONING, nameLink.c_str(), handler->GetTrinityString(LANG_OFFLINE));
 
             // in point where GM stay
-            SQLTransaction dummy;
+            CharacterDatabaseTransaction dummy;
             Player::SavePositionInDB(WorldLocation(handler->GetSession()->GetPlayer()->GetMapId(),
                 handler->GetSession()->GetPlayer()->GetPositionX(),
                 handler->GetSession()->GetPlayer()->GetPositionY(),
@@ -629,7 +667,7 @@ public:
         }
         else
         {
-            SQLTransaction trans(nullptr);
+            CharacterDatabaseTransaction trans(nullptr);
             Player::OfflineResurrect(targetGuid, trans);
         }
 
@@ -774,26 +812,55 @@ public:
 
     static bool HandleGetDistanceCommand(ChatHandler* handler, char const* args)
     {
-        WorldObject* obj = NULL;
-
+        WorldObject* object = nullptr;
         if (*args)
         {
-            ObjectGuid guid = handler->extractGuidFromLink((char*)args);
-            if (!guid.IsEmpty())
-                obj = (WorldObject*)ObjectAccessor::GetObjectByTypeMask(*handler->GetSession()->GetPlayer(), guid, TYPEMASK_UNIT|TYPEMASK_GAMEOBJECT);
-
-            if (!obj)
-            {
-                handler->SendSysMessage(LANG_PLAYER_NOT_FOUND);
-                handler->SetSentErrorMessage(true);
+            HighGuid guidHigh;
+            ObjectGuid::LowType guidLow = handler->extractLowGuidFromLink((char*)args, guidHigh);
+            if (!guidLow)
                 return false;
+            switch (guidHigh)
+            {
+                case HighGuid::Player:
+                {
+                    object = ObjectAccessor::GetPlayer(*handler->GetSession()->GetPlayer(), ObjectGuid::Create<HighGuid::Player>(guidLow));
+                    if (!object)
+                    {
+                        handler->SendSysMessage(LANG_PLAYER_NOT_FOUND);
+                        handler->SetSentErrorMessage(true);
+                    }
+                    break;
+                }
+                case HighGuid::Creature:
+                {
+                    object = handler->GetCreatureFromPlayerMapByDbGuid(guidLow);
+                    if (!object)
+                    {
+                        handler->SendSysMessage(LANG_COMMAND_NOCREATUREFOUND);
+                        handler->SetSentErrorMessage(true);
+                    }
+                    break;
+                }
+                case HighGuid::GameObject:
+                {
+                    object = handler->GetObjectFromPlayerMapByDbGuid(guidLow);
+                    if (!object)
+                    {
+                        handler->SendSysMessage(LANG_COMMAND_NOGAMEOBJECTFOUND);
+                        handler->SetSentErrorMessage(true);
+                    }
+                    break;
+                }
+                default:
+                    return false;
             }
+            if (!object)
+                return false;
         }
         else
         {
-            obj = handler->getSelectedUnit();
-
-            if (!obj)
+            object = handler->getSelectedUnit();
+            if (!object)
             {
                 handler->SendSysMessage(LANG_SELECT_CHAR_OR_CREATURE);
                 handler->SetSentErrorMessage(true);
@@ -801,7 +868,7 @@ public:
             }
         }
 
-        handler->PSendSysMessage(LANG_DISTANCE, handler->GetSession()->GetPlayer()->GetDistance(obj), handler->GetSession()->GetPlayer()->GetDistance2d(obj), handler->GetSession()->GetPlayer()->GetExactDist(obj), handler->GetSession()->GetPlayer()->GetExactDist2d(obj));
+        handler->PSendSysMessage(LANG_DISTANCE, handler->GetSession()->GetPlayer()->GetDistance(object), handler->GetSession()->GetPlayer()->GetDistance2d(object), handler->GetSession()->GetPlayer()->GetExactDist(object), handler->GetSession()->GetPlayer()->GetExactDist2d(object));
         return true;
     }
     // Teleport player to last position
@@ -933,14 +1000,14 @@ public:
 
         if (!player)
         {
-            PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_HOMEBIND);
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_HOMEBIND);
             stmt->setUInt64(0, targetGUID.GetCounter());
             PreparedQueryResult result = CharacterDatabase.Query(stmt);
             if (result)
             {
                 Field* fields = result->Fetch();
 
-                SQLTransaction dummy;
+                CharacterDatabaseTransaction dummy;
                 Player::SavePositionInDB(WorldLocation(fields[0].GetUInt16(), fields[2].GetFloat(), fields[3].GetFloat(), fields[4].GetFloat(), 0.0f), fields[1].GetUInt16(), targetGUID, dummy);
                 return true;
             }
@@ -995,7 +1062,7 @@ public:
         if (!px)
             return false;
 
-        uint32 graveyardId = uint32(atoi(px));
+        uint32 graveyardId = atoul(px);
 
         uint32 team;
 
@@ -1057,7 +1124,7 @@ public:
         Player* player = handler->GetSession()->GetPlayer();
         uint32 zone_id = player->GetZoneId();
 
-        WorldSafeLocsEntry const* graveyard = sObjectMgr->GetClosestGraveYard(player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetMapId(), team);
+        WorldSafeLocsEntry const* graveyard = sObjectMgr->GetClosestGraveYard(*player, team, nullptr);
         if (graveyard)
         {
             uint32 graveyardId = graveyard->ID;
@@ -1129,7 +1196,7 @@ public:
             return false;
         }
 
-        int32 offset = area->AreaBit / 32;
+        uint32 offset = area->AreaBit / 64;
         if (offset >= PLAYER_EXPLORED_ZONES_SIZE)
         {
             handler->SendSysMessage(LANG_BAD_VALUE);
@@ -1137,9 +1204,8 @@ public:
             return false;
         }
 
-        uint32 val = uint32((1 << (area->AreaBit % 32)));
-        uint32 currFields = playerTarget->GetUInt32Value(PLAYER_EXPLORED_ZONES_1 + offset);
-        playerTarget->SetUInt32Value(PLAYER_EXPLORED_ZONES_1 + offset, uint32((currFields | val)));
+        uint64 val = UI64LIT(1) << (area->AreaBit % 64);
+        playerTarget->AddExploredZones(offset, val);
 
         handler->SendSysMessage(LANG_EXPLORE_AREA);
         return true;
@@ -1173,7 +1239,7 @@ public:
             return false;
         }
 
-        int32 offset = area->AreaBit / 32;
+        uint32 offset = area->AreaBit / 64;
         if (offset >= PLAYER_EXPLORED_ZONES_SIZE)
         {
             handler->SendSysMessage(LANG_BAD_VALUE);
@@ -1181,9 +1247,8 @@ public:
             return false;
         }
 
-        uint32 val = uint32((1 << (area->AreaBit % 32)));
-        uint32 currFields = playerTarget->GetUInt32Value(PLAYER_EXPLORED_ZONES_1 + offset);
-        playerTarget->SetUInt32Value(PLAYER_EXPLORED_ZONES_1 + offset, uint32((currFields ^ val)));
+        uint64 val = UI64LIT(1) << (area->AreaBit % 64);
+        playerTarget->RemoveExploredZones(offset, val);
 
         handler->SendSysMessage(LANG_UNEXPLORE_AREA);
         return true;
@@ -1206,7 +1271,7 @@ public:
                 auto itr = std::find_if(sItemSparseStore.begin(), sItemSparseStore.end(), [&itemName](ItemSparseEntry const* sparse)
                 {
                     for (uint32 i = 0; i < MAX_LOCALES; ++i)
-                        if (itemName == sparse->Name->Str[i])
+                        if (itemName == sparse->Display->Str[i])
                             return true;
                     return false;
                 });
@@ -1291,7 +1356,7 @@ public:
             return false;
         }
 
-        Item* item = playerTarget->StoreNewItem(dest, itemId, true, Item::GenerateItemRandomPropertyId(itemId), GuidSet(), bonusListIDs);
+        Item* item = playerTarget->StoreNewItem(dest, itemId, true, GenerateItemRandomBonusListId(itemId), GuidSet(), 0, bonusListIDs);
 
         // remove binding (let GM give it to another player later)
         if (player == playerTarget)
@@ -1360,7 +1425,7 @@ public:
                 InventoryResult msg = playerTarget->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, itr->second.GetId(), 1);
                 if (msg == EQUIP_ERR_OK)
                 {
-                    Item* item = playerTarget->StoreNewItem(dest, itr->second.GetId(), true, {}, GuidSet(), bonusListIDs);
+                    Item* item = playerTarget->StoreNewItem(dest, itr->second.GetId(), true, {}, GuidSet(), 0, bonusListIDs);
 
                     // remove binding (let GM give it to another player later)
                     if (player == playerTarget)
@@ -1420,10 +1485,7 @@ public:
         Player* player = handler->GetSession()->GetPlayer();
         uint32 zoneid = player->GetZoneId();
 
-        Weather* weather = WeatherMgr::FindWeather(zoneid);
-
-        if (!weather)
-            weather = WeatherMgr::AddWeather(zoneid);
+        Weather* weather = player->GetMap()->GetOrGenerateZoneDefaultWeather(zoneid);
         if (!weather)
         {
             handler->SendSysMessage(LANG_NO_WEATHER);
@@ -1465,15 +1527,15 @@ public:
 
         char const* maxPureSkill = strtok(NULL, " ");
 
-        int32 skill = atoi(skillStr);
-        if (skill <= 0)
+        uint32 skill = atoul(skillStr);
+        if (skill == 0)
         {
             handler->PSendSysMessage(LANG_INVALID_SKILL_ID, skill);
             handler->SetSentErrorMessage(true);
             return false;
         }
 
-        int32 level = atol(levelStr);
+        uint32 level = atoul(levelStr);
 
         Player* target = handler->getSelectedPlayerOrSelf();
         if (!target)
@@ -1497,7 +1559,7 @@ public:
         // the max level of the new profession.
         uint16 max = maxPureSkill ? atoul(maxPureSkill) : targetHasSkill ? target->GetPureMaxSkillValue(skill) : uint16(level);
 
-        if (level <= 0 || level > max || max <= 0)
+        if (level == 0 || level > max || max <= 0)
             return false;
 
         // If the player has the skill, we get the current skill step. If they don't have the skill, we
@@ -1532,13 +1594,13 @@ public:
         Player* target;
         ObjectGuid targetGuid;
         std::string targetName;
-        PreparedStatement* stmt = NULL;
+        CharacterDatabasePreparedStatement* stmt = NULL;
 
         // To make sure we get a target, we convert our guid to an omniversal...
         ObjectGuid parseGUID = ObjectGuid::Create<HighGuid::Player>(strtoull(args, nullptr, 10));
 
         // ... and make sure we get a target, somehow.
-        if (ObjectMgr::GetPlayerNameByGUID(parseGUID, targetName))
+        if (sCharacterCache->GetCharacterNameByGuid(parseGUID, targetName))
         {
             target = ObjectAccessor::FindPlayer(parseGUID);
             targetGuid = parseGUID;
@@ -1566,8 +1628,8 @@ public:
          * * Phases: %s                              - XIII. LANG_PINFO_CHR_PHASE (if not GM)
          * * Money: %ug%us%uc                        - XIV.  LANG_PINFO_CHR_MONEY
          * * Map: %s, Area: %s                       - XV.   LANG_PINFO_CHR_MAP
-         * * Guild: %s (Id: %u)                      - XVI.  LANG_PINFO_CHR_GUILD (if in guild)
-         * ** Rank: %s                               - XVII. LANG_PINFO_CHR_GUILD_RANK (if in guild)
+         * * Guild: %s (Id: %s)                      - XVI.  LANG_PINFO_CHR_GUILD (if in guild)
+         * ** Rank: %s, ID: %u                       - XVII. LANG_PINFO_CHR_GUILD_RANK (if in guild)
          * ** Note: %s                               - XVIII.LANG_PINFO_CHR_GUILD_NOTE (if in guild and has note)
          * ** O. Note: %s                            - XVIX. LANG_PINFO_CHR_GUILD_ONOTE (if in guild and has officer note)
          * * Played time: %s                         - XX.   LANG_PINFO_CHR_PLAYEDTIME
@@ -1612,14 +1674,13 @@ public:
         uint32 totalPlayerTime          = 0;
         uint8 level                     = 0;
         std::string alive               = handler->GetTrinityString(LANG_ERROR);
-        uint32 money                    = 0;
+        uint64 money                    = 0;
         uint32 xp                       = 0;
         uint32 xptotal                  = 0;
 
         // Position data print
         uint32 mapId;
         uint32 areaId;
-        std::set<uint32> phases;
         std::string areaName    = handler->GetTrinityString(LANG_UNKNOWN);
         std::string zoneName    = handler->GetTrinityString(LANG_UNKNOWN);
 
@@ -1650,8 +1711,7 @@ public:
             mapId             = target->GetMapId();
             areaId            = target->GetAreaId();
             alive             = target->IsAlive() ? handler->GetTrinityString(LANG_YES) : handler->GetTrinityString(LANG_NO);
-            gender            = target->GetByteValue(PLAYER_BYTES_3, PLAYER_BYTES_3_OFFSET_GENDER);
-            phases            = target->GetPhases();
+            gender            = target->m_playerData->NativeSex;
         }
         // get additional information from DB
         else
@@ -1671,7 +1731,7 @@ public:
             Field* fields      = result->Fetch();
             totalPlayerTime    = fields[0].GetUInt32();
             level              = fields[1].GetUInt8();
-            money              = fields[2].GetUInt32();
+            money              = fields[2].GetUInt64();
             accId              = fields[3].GetUInt32();
             raceid             = fields[4].GetUInt8();
             classid            = fields[5].GetUInt8();
@@ -1688,10 +1748,10 @@ public:
         }
 
         // Query the prepared statement for login data
-        stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_PINFO);
-        stmt->setInt32(0, int32(realm.Id.Realm));
-        stmt->setUInt32(1, accId);
-        PreparedQueryResult result = LoginDatabase.Query(stmt);
+        LoginDatabasePreparedStatement* stmt2 = LoginDatabase.GetPreparedStatement(LOGIN_SEL_PINFO);
+        stmt2->setInt32(0, int32(realm.Id.Realm));
+        stmt2->setUInt32(1, accId);
+        PreparedQueryResult result = LoginDatabase.Query(stmt2);
 
         if (result)
         {
@@ -1708,17 +1768,10 @@ public:
                 lastIp    = fields[4].GetString();
                 lastLogin = fields[5].GetString();
 
-                uint32 ip = inet_addr(lastIp.c_str());
-                EndianConvertReverse(ip);
-
-                // If ip2nation table is populated, it displays the country
-                stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_IP2NATION_COUNTRY);
-                stmt->setUInt32(0, ip);
-                if (PreparedQueryResult result2 = LoginDatabase.Query(stmt))
+                if (IpLocationRecord const* location = sIPLocation->GetLocationRecord(lastIp))
                 {
-                    Field* fields2 = result2->Fetch();
                     lastIp.append(" (");
-                    lastIp.append(fields2[0].GetString());
+                    lastIp.append(location->CountryName);
                     lastIp.append(")");
                 }
             }
@@ -1741,7 +1794,7 @@ public:
         std::string nameLink = handler->playerLink(targetName);
 
         // Returns banType, banTime, bannedBy, banreason
-        PreparedStatement* stmt2 = LoginDatabase.GetPreparedStatement(LOGIN_SEL_PINFO_BANS);
+        stmt2 = LoginDatabase.GetPreparedStatement(LOGIN_SEL_PINFO_BANS);
         stmt2->setUInt32(0, accId);
         PreparedQueryResult result2 = LoginDatabase.Query(stmt2);
         if (!result2)
@@ -1761,9 +1814,9 @@ public:
         }
 
         // Can be used to query data from Characters database
-        stmt2 = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PINFO_XP);
-        stmt2->setUInt64(0, lowguid);
-        PreparedQueryResult result4 = CharacterDatabase.Query(stmt2);
+        stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PINFO_XP);
+        stmt->setUInt64(0, lowguid);
+        PreparedQueryResult result4 = CharacterDatabase.Query(stmt);
 
         if (result4)
         {
@@ -1775,9 +1828,9 @@ public:
             if (gguid)
             {
                 // Guild Data - an own query, because it may not happen.
-                PreparedStatement* stmt3 = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GUILD_MEMBER_EXTENDED);
-                stmt3->setUInt64(0, lowguid);
-                PreparedQueryResult result5 = CharacterDatabase.Query(stmt3);
+                stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GUILD_MEMBER_EXTENDED);
+                stmt->setUInt64(0, lowguid);
+                PreparedQueryResult result5 = CharacterDatabase.Query(stmt);
                 if (result5)
                 {
                     Field* fields5  = result5->Fetch();
@@ -1836,9 +1889,9 @@ public:
         // Output XII. LANG_PINFO_CHR_ALIVE
         handler->PSendSysMessage(LANG_PINFO_CHR_ALIVE, alive.c_str());
 
-        // Output XIII. LANG_PINFO_CHR_PHASES
-        if (target && !phases.empty())
-            handler->PSendSysMessage(LANG_PINFO_CHR_PHASES, StringJoin(phases, ", ").c_str());
+        // Output XIII. phases
+        if (target)
+            PhasingHandler::PrintToChat(handler, target->GetPhaseShift());
 
         // Output XIV. LANG_PINFO_CHR_MONEY
         uint32 gold                   = money / GOLD;
@@ -1866,7 +1919,7 @@ public:
         // Output XVII. - XVIX. if they are not empty
         if (!guildName.empty())
         {
-            handler->PSendSysMessage(LANG_PINFO_CHR_GUILD, guildName.c_str(), guildId);
+            handler->PSendSysMessage(LANG_PINFO_CHR_GUILD, guildName.c_str(), std::to_string(guildId).c_str());
             handler->PSendSysMessage(LANG_PINFO_CHR_GUILD_RANK, guildRank.c_str(), uint32(guildRankId));
             if (!note.empty())
                 handler->PSendSysMessage(LANG_PINFO_CHR_GUILD_NOTE, note.c_str());
@@ -1879,9 +1932,9 @@ public:
 
         // Mail Data - an own query, because it may or may not be useful.
         // SQL: "SELECT SUM(CASE WHEN (checked & 1) THEN 1 ELSE 0 END) AS 'readmail', COUNT(*) AS 'totalmail' FROM mail WHERE `receiver` = ?"
-        PreparedStatement* stmt4 = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PINFO_MAILS);
-        stmt4->setUInt64(0, lowguid);
-        PreparedQueryResult result6 = CharacterDatabase.Query(stmt4);
+        stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PINFO_MAILS);
+        stmt->setUInt64(0, lowguid);
+        PreparedQueryResult result6 = CharacterDatabase.Query(stmt);
         if (result6)
         {
             Field* fields         = result6->Fetch();
@@ -1918,7 +1971,7 @@ public:
 
         Trinity::RespawnDo u_do;
         Trinity::WorldObjectWorker<Trinity::RespawnDo> worker(player, u_do);
-        player->VisitNearbyGridObject(player->GetGridActivationRange(), worker);
+        Cell::VisitGridObjects(player, worker, player->GetGridActivationRange());
 
         return true;
     }
@@ -1943,7 +1996,7 @@ public:
         if (!handler->extractPlayerTarget(nameStr, &target, &targetGuid, &targetName))
             return false;
 
-        uint32 accountId = target ? target->GetSession()->GetAccountId() : ObjectMgr::GetPlayerAccountIdByGUID(targetGuid);
+        uint32 accountId = target ? target->GetSession()->GetAccountId() : sCharacterCache->GetCharacterAccountIdByGuid(targetGuid);
 
         // find only player from same account if any
         if (!target)
@@ -1956,7 +2009,7 @@ public:
         if (handler->HasLowerSecurity (target, targetGuid, true))
             return false;
 
-        PreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_MUTE_TIME);
+        LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_MUTE_TIME);
         std::string muteBy = "";
         if (handler->GetSession())
             muteBy = handler->GetSession()->GetPlayerName();
@@ -2012,7 +2065,7 @@ public:
         if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
-        uint32 accountId = target ? target->GetSession()->GetAccountId() : ObjectMgr::GetPlayerAccountIdByGUID(targetGuid);
+        uint32 accountId = target ? target->GetSession()->GetAccountId() : sCharacterCache->GetCharacterAccountIdByGuid(targetGuid);
 
         // find only player from same account if any
         if (!target)
@@ -2035,7 +2088,7 @@ public:
             target->GetSession()->m_muteTime = 0;
         }
 
-        PreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_MUTE_TIME);
+        LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_MUTE_TIME);
         stmt->setInt64(0, 0);
         stmt->setString(1, "");
         stmt->setString(2, "");
@@ -2083,7 +2136,7 @@ public:
     // helper for mutehistory
     static bool HandleMuteInfoHelper(uint32 accountId, char const* accountName, ChatHandler *handler)
     {
-        PreparedStatement *stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_MUTE_INFO);
+        LoginDatabasePreparedStatement *stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_MUTE_INFO);
         stmt->setUInt32(0, accountId);
         PreparedQueryResult result = LoginDatabase.Query(stmt);
 
@@ -2253,8 +2306,8 @@ public:
                 return false;
             }
 
-            ObjectGuid::LowType guid = strtoull(guidStr, nullptr, 10);
-            if (!guid)
+            ObjectGuid::LowType guidLow = atoull(guidStr);
+            if (!guidLow)
             {
                 handler->SendSysMessage(LANG_BAD_VALUE);
                 handler->SetSentErrorMessage(true);
@@ -2279,14 +2332,10 @@ public:
 
             if (Player* player = handler->GetSession()->GetPlayer())
             {
-                GameObject* go = NULL;
-
-                if (GameObjectData const* goData = sObjectMgr->GetGOData(guid))
-                    go = handler->GetObjectGlobalyWithGuidOrNearWithDbGuid(guid, goData->id);
-
+                GameObject* go = handler->GetObjectFromPlayerMapByDbGuid(guidLow);
                 if (!go)
                 {
-                    handler->PSendSysMessage(LANG_COMMAND_OBJNOTFOUND, guid);
+                    handler->PSendSysMessage(LANG_COMMAND_OBJNOTFOUND, std::to_string(guidLow).c_str());
                     handler->SetSentErrorMessage(true);
                     return false;
                 }
@@ -2299,7 +2348,7 @@ public:
                 }
 
                 go->ModifyHealth(-damage, player);
-                handler->PSendSysMessage(LANG_GAMEOBJECT_DAMAGED, go->GetName().c_str(), guid, -damage, go->GetGOValue()->Building.Health);
+                handler->PSendSysMessage(LANG_GAMEOBJECT_DAMAGED, go->GetName().c_str(), std::to_string(guidLow).c_str(), -damage, go->GetGOValue()->Building.Health);
             }
 
             return true;
@@ -2352,22 +2401,24 @@ public:
 
         char* spellStr = strtok((char*)NULL, " ");
 
+        Player* attacker = handler->GetSession()->GetPlayer();
+
         // melee damage by specific school
         if (!spellStr)
         {
-            uint32 absorb = 0;
-            uint32 resist = 0;
+            DamageInfo dmgInfo(attacker, target, damage, nullptr, schoolmask, SPELL_DIRECT_DAMAGE, BASE_ATTACK);
+            attacker->CalcAbsorbResist(dmgInfo);
 
-            handler->GetSession()->GetPlayer()->CalcAbsorbResist(target, schoolmask, SPELL_DIRECT_DAMAGE, damage, &absorb, &resist);
-
-            if (damage <= absorb + resist)
+            if (!dmgInfo.GetDamage())
                 return true;
 
-            damage -= absorb + resist;
+            damage = dmgInfo.GetDamage();
 
-            handler->GetSession()->GetPlayer()->DealDamageMods(target, damage, &absorb);
-            handler->GetSession()->GetPlayer()->DealDamage(target, damage, NULL, DIRECT_DAMAGE, schoolmask, NULL, false);
-            handler->GetSession()->GetPlayer()->SendAttackStateUpdate(HITINFO_AFFECTS_VICTIM, target, 1, schoolmask, damage, absorb, resist, VICTIMSTATE_HIT, 0);
+            uint32 absorb = dmgInfo.GetAbsorb();
+            uint32 resist = dmgInfo.GetResist();
+            attacker->DealDamageMods(target, damage, &absorb);
+            attacker->DealDamage(target, damage, nullptr, DIRECT_DAMAGE, schoolmask, nullptr, false);
+            attacker->SendAttackStateUpdate(HITINFO_AFFECTS_VICTIM, target, 0, schoolmask, damage, absorb, resist, VICTIMSTATE_HIT, 0);
             return true;
         }
 
@@ -2375,12 +2426,16 @@ public:
 
         // number or [name] Shift-click form |color|Hspell:spell_id|h[name]|h|r or Htalent form
         uint32 spellid = handler->extractSpellIdFromLink((char*)args);
-        if (!spellid || !sSpellMgr->GetSpellInfo(spellid))
+        if (!spellid)
             return false;
 
-        SpellNonMeleeDamage damageInfo(handler->GetSession()->GetPlayer(), target, spellid, sSpellMgr->GetSpellInfo(spellid)->SchoolMask);
+        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellid);
+        if (!spellInfo)
+            return false;
+
+        SpellNonMeleeDamage damageInfo(attacker, target, spellid, spellInfo->GetSpellXSpellVisualId(handler->GetSession()->GetPlayer()), spellInfo->SchoolMask);
         damageInfo.damage = damage;
-        handler->GetSession()->GetPlayer()->DealDamageMods(damageInfo.target, damageInfo.damage, &damageInfo.absorb);
+        attacker->DealDamageMods(damageInfo.target, damageInfo.damage, &damageInfo.absorb);
         target->DealSpellDamage(&damageInfo, true);
         target->SendSpellNonMeleeDamageLog(&damageInfo);
         return true;
@@ -2567,7 +2622,7 @@ public:
             if (targetName)
             {
                 // Check for offline players
-                ObjectGuid guid = ObjectMgr::GetPlayerGUIDByName(name);
+                ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(name);
                 if (guid.IsEmpty())
                 {
                     handler->SendSysMessage(LANG_COMMAND_FREEZE_WRONG);
@@ -2575,7 +2630,7 @@ public:
                 }
 
                 // If player found: delete his freeze aura
-                PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_AURA_FROZEN);
+                CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_AURA_FROZEN);
                 stmt->setUInt64(0, guid.GetCounter());
                 CharacterDatabase.Execute(stmt);
 
@@ -2595,7 +2650,7 @@ public:
     static bool HandleListFreezeCommand(ChatHandler* handler, char const* /*args*/)
     {
         // Get names from DB
-        PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_AURA_FROZEN);
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_AURA_FROZEN);
         PreparedQueryResult result = CharacterDatabase.Query(stmt);
         if (!result)
         {
@@ -2633,7 +2688,7 @@ public:
         if (!*args)
             return false;
 
-        uint32 soundId = atoi((char*)args);
+        uint32 soundId = atoul(args);
 
         if (!sSoundKitStore.LookupEntry(soundId))
         {
@@ -2710,7 +2765,7 @@ public:
         }
 
         Unit::AuraApplicationMap const& uAuras = target->GetAppliedAuras();
-        handler->PSendSysMessage(LANG_COMMAND_TARGET_LISTAURAS, uAuras.size());
+        handler->PSendSysMessage(LANG_COMMAND_TARGET_LISTAURAS, std::to_string(uAuras.size()).c_str());
         for (Unit::AuraApplicationMap::const_iterator itr = uAuras.begin(); itr != uAuras.end(); ++itr)
         {
             AuraApplication const* aurApp = itr->second;

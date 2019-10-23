@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,10 +24,13 @@ SDCategory: Dalaran
 Script Data End */
 
 #include "ScriptMgr.h"
+#include "DatabaseEnv.h"
+#include "Mail.h"
+#include "Map.h"
+#include "MotionMaster.h"
 #include "ScriptedCreature.h"
 #include "ScriptedGossip.h"
 #include "Player.h"
-#include "WorldSession.h"
 
 /*******************************************************
  * npc_mageguard_dalaran
@@ -61,7 +64,7 @@ public:
     {
         npc_mageguard_dalaranAI(Creature* creature) : ScriptedAI(creature)
         {
-            creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+            creature->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
             creature->ApplySpellImmune(0, IMMUNITY_DAMAGE, SPELL_SCHOOL_NORMAL, true);
             creature->ApplySpellImmune(0, IMMUNITY_DAMAGE, SPELL_SCHOOL_MASK_MAGIC, true);
         }
@@ -165,7 +168,7 @@ class npc_minigob_manabonk : public CreatureScript
 
             Player* SelectTargetInDalaran()
             {
-                std::list<Player*> PlayerInDalaranList;
+                std::vector<Player*> PlayerInDalaranList;
                 PlayerInDalaranList.clear();
 
                 Map::PlayerList const &players = me->GetMap()->GetPlayers();
@@ -181,7 +184,7 @@ class npc_minigob_manabonk : public CreatureScript
 
             void SendMailToPlayer(Player* player)
             {
-                SQLTransaction trans = CharacterDatabase.BeginTransaction();
+                CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
                 int16 deliverDelay = irand(MAIL_DELIVER_DELAY_MIN, MAIL_DELIVER_DELAY_MAX);
                 MailDraft(MAIL_MINIGOB_ENTRY, true).SendMailTo(trans, MailReceiver(player), MailSender(MAIL_CREATURE, uint64(me->GetEntry())), MAIL_CHECK_MASK_NONE, deliverDelay);
                 CharacterDatabase.CommitTransaction(trans);

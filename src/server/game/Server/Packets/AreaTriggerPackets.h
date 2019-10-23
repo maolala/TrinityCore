@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,8 +19,9 @@
 #define AreaTriggerPackets_h__
 
 #include "Packet.h"
-#include "PacketUtilities.h"
+#include "AreaTriggerTemplate.h"
 #include "ObjectGuid.h"
+#include "Optional.h"
 
 namespace WorldPackets
 {
@@ -30,22 +31,7 @@ namespace WorldPackets
         {
             uint32 TimeToTarget = 0;
             uint32 ElapsedTimeForMovement = 0;
-            std::vector<G3D::Vector3> Points;
-        };
-
-        struct AreaTriggerUnkTypeInfo
-        {
-            Optional<ObjectGuid> AreaTriggerUnkGUID;
-            Optional<G3D::Vector3> Center;
-            bool UnkBit1 = false;
-            bool UnkBit2 = false;
-            uint32 UnkUInt1 = 0;
-            int32 UnkInt1 = 0;
-            uint32 UnkUInt2 = 0;
-            float Radius = 0.0;
-            float BlendFromRadius = 0.0f;
-            float InitialAngel = 0.0f;
-            float ZOffset = 0.0f;
+            std::vector<TaggedPosition<Position::XYZ>> Points;
         };
 
         class AreaTrigger final : public ClientPacket
@@ -82,26 +68,17 @@ namespace WorldPackets
         class AreaTriggerRePath final : public ServerPacket
         {
         public:
-            AreaTriggerRePath() : ServerPacket(SMSG_AREA_TRIGGER_RE_PATH, 50) { }
-
-            WorldPacket const* Write() override;
-
-            AreaTriggerSplineInfo AreaTriggerSpline;
-            ObjectGuid TriggerGUID;
-        };
-
-        class AreaTriggerReShape final : public ServerPacket
-        {
-        public:
-            AreaTriggerReShape() : ServerPacket(SMSG_AREA_TRIGGER_RE_SHAPE, 17) { }
+            AreaTriggerRePath() : ServerPacket(SMSG_AREA_TRIGGER_RE_PATH, 17) { }
 
             WorldPacket const* Write() override;
 
             Optional<AreaTriggerSplineInfo> AreaTriggerSpline;
-            Optional<AreaTriggerUnkTypeInfo> AreaTriggerUnkType;
+            Optional<AreaTriggerCircularMovementInfo> AreaTriggerCircularMovement;
             ObjectGuid TriggerGUID;
         };
     }
 }
+
+ByteBuffer& operator<<(ByteBuffer& data, AreaTriggerCircularMovementInfo const& areaTriggerCircularMovement);
 
 #endif // AreaTriggerPackets_h__

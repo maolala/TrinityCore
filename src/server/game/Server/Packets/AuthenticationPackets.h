@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,15 +19,12 @@
 #define AuthenticationPacketsWorld_h__
 
 #include "Packet.h"
-#include "ObjectMgr.h"
-#include "Common.h"
-#include "BigNumber.h"
-#include "SHA1.h"
-#include <boost/asio/ip/tcp.hpp>
+#include "Define.h"
+#include "Optional.h"
+#include <array>
+#include <unordered_map>
 
 struct CharacterTemplate;
-
-using boost::asio::ip::tcp;
 
 namespace WorldPackets
 {
@@ -66,12 +63,12 @@ namespace WorldPackets
         class AuthChallenge final : public ServerPacket
         {
         public:
-            AuthChallenge() : ServerPacket(SMSG_AUTH_CHALLENGE, 4 + 32 + 1) { }
+            AuthChallenge() : ServerPacket(SMSG_AUTH_CHALLENGE, 16 + 4 * 8 + 1) { }
 
             WorldPacket const* Write() override;
 
-            std::array<uint8, 16> Challenge;
-            uint32 DosChallenge[8]; ///< Encryption seeds
+            std::array<uint8, 16> Challenge = { };
+            std::array<uint32, 8> DosChallenge = { };
             uint8 DosZeroBits = 0;
         };
 
@@ -86,8 +83,6 @@ namespace WorldPackets
                 Digest.fill(0);
             }
 
-            uint16 Build = 0;
-            int8 BuildType = 0;
             uint32 RegionID = 0;
             uint32 BattlegroupID = 0;
             uint32 RealmID = 0;
@@ -108,27 +103,37 @@ namespace WorldPackets
             bool HasFCM = false; ///< true if the account has a forced character migration pending. @todo implement
         };
 
+        struct VirtualRealmNameInfo
+        {
+            VirtualRealmNameInfo() : IsLocal(false), IsInternalRealm(false) { }
+            VirtualRealmNameInfo(bool isHomeRealm, bool isInternalRealm, std::string const& realmNameActual, std::string const& realmNameNormalized) :
+                IsLocal(isHomeRealm), IsInternalRealm(isInternalRealm), RealmNameActual(realmNameActual), RealmNameNormalized(realmNameNormalized) { }
+
+            bool IsLocal;                    ///< true if the realm is the same as the account's home realm
+            bool IsInternalRealm;            ///< @todo research
+            std::string RealmNameActual;     ///< the name of the realm
+            std::string RealmNameNormalized; ///< the name of the realm without spaces
+        };
+
+        struct VirtualRealmInfo
+        {
+            VirtualRealmInfo(uint32 realmAddress, bool isHomeRealm, bool isInternalRealm, std::string const& realmNameActual, std::string const& realmNameNormalized) :
+                RealmAddress(realmAddress), RealmNameInfo(isHomeRealm, isInternalRealm, realmNameActual, realmNameNormalized) { }
+
+            uint32 RealmAddress;             ///< the virtual address of this realm, constructed as RealmHandle::Region << 24 | RealmHandle::Battlegroup << 16 | RealmHandle::Index
+            VirtualRealmNameInfo RealmNameInfo;
+        };
+
         class AuthResponse final : public ServerPacket
         {
         public:
-            struct RealmInfo
-            {
-                RealmInfo(uint32 realmAddress, bool isHomeRealm, bool isInternalRealm, std::string const& realmNameActual, std::string const& realmNameNormalized) :
-                    RealmAddress(realmAddress), IsLocal(isHomeRealm), IsInternalRealm(isInternalRealm), RealmNameActual(realmNameActual), RealmNameNormalized(realmNameNormalized) { }
-
-                uint32 RealmAddress;             ///< the virtual address of this realm, constructed as RealmHandle::Region << 24 | RealmHandle::Battlegroup << 16 | RealmHandle::Index
-                bool IsLocal;                    ///< true if the realm is the same as the account's home realm
-                bool IsInternalRealm;            ///< @todo research
-                std::string RealmNameActual;     ///< the name of the realm
-                std::string RealmNameNormalized; ///< the name of the realm without spaces
-            };
-
             struct AuthSuccessInfo
             {
                 struct BillingInfo
                 {
                     uint32 BillingPlan = 0;
                     uint32 TimeRemain = 0;
+                    uint32 Unknown735 = 0;
                     bool InGameRoom = false;
                 };
 
@@ -143,16 +148,16 @@ namespace WorldPackets
 
                 BillingInfo Billing;
 
-                std::vector<RealmInfo> VirtualRealms;     ///< list of realms connected to this one (inclusive) @todo implement
+                std::vector<VirtualRealmInfo> VirtualRealms;     ///< list of realms connected to this one (inclusive) @todo implement
                 std::vector<CharacterTemplate const*> Templates; ///< list of pre-made character templates.
 
-                ExpansionRequirementContainer const* AvailableClasses = nullptr; ///< the minimum AccountExpansion required to select the classes
-                ExpansionRequirementContainer const* AvailableRaces = nullptr; ///< the minimum AccountExpansion required to select the races
+                std::unordered_map<uint8, uint8> const* AvailableClasses = nullptr; ///< the minimum AccountExpansion required to select the classes
 
                 bool IsExpansionTrial = false;
                 bool ForceCharacterTemplate = false; ///< forces the client to always use a character template when creating a new character. @see Templates. @todo implement
                 Optional<uint16> NumPlayersHorde; ///< number of horde players in this realm. @todo implement
                 Optional<uint16> NumPlayersAlliance; ///< number of alliance players in this realm. @todo implement
+                Optional<int32> ExpansionTrialExpiration; ///< expansion trial expiration unix timestamp
             };
 
             AuthResponse();
@@ -195,18 +200,34 @@ namespace WorldPackets
 
         class ConnectTo final : public ServerPacket
         {
-            static std::string const Haiku;
-            static uint8 const PiDigits[130];
+        public:
+            static bool InitializeEncryption();
+
+            enum AddressType : uint8
+            {
+                IPv4 = 1,
+                IPv6 = 2,
+                NamedSocket = 3 // not supported by windows client
+            };
+
+            struct SocketAddress
+            {
+                AddressType Type;
+                union
+                {
+                    std::array<uint8, 4> V4;
+                    std::array<uint8, 16> V6;
+                    std::array<char, 128> Name;
+                } Address;
+            };
 
             struct ConnectPayload
             {
-                tcp::endpoint Where;
-                uint32 Adler32 = 0;
-                uint8 XorMagic = 0x2A;
-                uint8 PanamaKey[32];
+                SocketAddress Where;
+                uint16 Port;
+                std::array<uint8, 256> Signature;
             };
 
-        public:
             ConnectTo();
 
             WorldPacket const* Write() override;
@@ -215,13 +236,6 @@ namespace WorldPackets
             ConnectToSerial Serial = ConnectToSerial::None;
             ConnectPayload Payload;
             uint8 Con = 0;
-
-        private:
-            BigNumber p;
-            BigNumber q;
-            BigNumber dmp1;
-            BigNumber dmq1;
-            BigNumber iqmp;
         };
 
         class AuthContinuedSession final : public EarlyProcessClientPacket
@@ -267,11 +281,19 @@ namespace WorldPackets
         class EnableEncryption final : public ServerPacket
         {
         public:
-            EnableEncryption() : ServerPacket(SMSG_ENABLE_ENCRYPTION, 0) { }
+            EnableEncryption(uint8 const* encryptionKey, bool enabled) : ServerPacket(SMSG_ENABLE_ENCRYPTION, 256 + 1),
+                EncryptionKey(encryptionKey), Enabled(enabled)
+            {
+            }
 
-            WorldPacket const* Write() override { return &_worldPacket; }
+            WorldPacket const* Write() override;
+
+            uint8 const* EncryptionKey;
+            bool Enabled = false;
         };
     }
 }
+
+ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Auth::VirtualRealmNameInfo const& realmInfo);
 
 #endif // AuthenticationPacketsWorld_h__

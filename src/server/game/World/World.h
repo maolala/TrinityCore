@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -24,25 +24,25 @@
 #define __WORLD_H
 
 #include "Common.h"
-#include "Realm/Realm.h"
+#include "DatabaseEnvFwd.h"
+#include "LockedQueue.h"
 #include "ObjectGuid.h"
-#include "Timer.h"
-#include "SharedDefines.h"
-#include "QueryResult.h"
 #include "QueryCallbackProcessor.h"
-#include "Realm/Realm.h"
+#include "SharedDefines.h"
+#include "Timer.h"
 
 #include <atomic>
-#include <map>
-#include <set>
 #include <list>
+#include <map>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 
-class Object;
+class Player;
 class WorldPacket;
 class WorldSession;
-class Player;
 class WorldSocket;
-class SystemMgr;
+struct Realm;
 
 // ServerMessages.dbc
 enum ServerMessageType
@@ -62,14 +62,14 @@ enum ServerMessageType
     SERVER_MSG_TICKET_WAIT_TIME       = 13,
 };
 
-enum ShutdownMask
+enum ShutdownMask : uint32
 {
     SHUTDOWN_MASK_RESTART = 1,
     SHUTDOWN_MASK_IDLE    = 2,
     SHUTDOWN_MASK_FORCE   = 4
 };
 
-enum ShutdownExitCode
+enum ShutdownExitCode : uint32
 {
     SHUTDOWN_EXIT_CODE = 0,
     ERROR_EXIT_CODE    = 1,
@@ -81,7 +81,6 @@ enum WorldTimers
 {
     WUPDATE_AUCTIONS,
     WUPDATE_AUCTIONS_PENDING,
-    WUPDATE_WEATHERS,
     WUPDATE_UPTIME,
     WUPDATE_CORPSES,
     WUPDATE_EVENTS,
@@ -94,6 +93,7 @@ enum WorldTimers
     WUPDATE_GUILDSAVE,
     WUPDATE_BLACKMARKET,
     WUPDATE_CHECK_FILECHANGES,
+    WUPDATE_WHO_LIST,
     WUPDATE_COUNT
 };
 
@@ -102,7 +102,6 @@ enum WorldBoolConfigs
 {
     CONFIG_DURABILITY_LOSS_IN_PVP = 0,
     CONFIG_ADDON_CHANNEL,
-    CONFIG_ALLOW_PLAYER_COMMANDS,
     CONFIG_CLEAN_CHARACTER_DB,
     CONFIG_GRID_UNLOAD,
     CONFIG_STATS_SAVE_ONLY_ON_LOGOUT,
@@ -124,6 +123,7 @@ enum WorldBoolConfigs
     CONFIG_SAVE_RESPAWN_TIME_IMMEDIATELY,
     CONFIG_WEATHER,
     CONFIG_QUEST_IGNORE_RAID,
+    CONFIG_CHAT_PARTY_RAID_WARNINGS,
     CONFIG_DETECT_POS_COLLISION,
     CONFIG_RESTRICTED_LFG_CHANNEL,
     CONFIG_CHAT_FAKE_MESSAGE_PREVENTING,
@@ -191,6 +191,7 @@ enum WorldBoolConfigs
     CONFIG_HOTSWAP_INSTALL_ENABLED,
     CONFIG_HOTSWAP_PREFIX_CORRECTION_ENABLED,
     CONFIG_PREVENT_RENAME_CUSTOMIZATION,
+    CONFIG_CACHE_DATA_QUERIES,
     CONFIG_CREATURE_CHECK_INVALID_POSITION,
     CONFIG_GAME_OBJECT_CHECK_INVALID_POSITION,
     BOOL_CONFIG_VALUE_COUNT
@@ -239,19 +240,16 @@ enum WorldIntConfigs
     CONFIG_MIN_CHARTER_NAME,
     CONFIG_MIN_PET_NAME,
     CONFIG_CHARACTER_CREATING_DISABLED,
-    CONFIG_CHARACTER_CREATING_DISABLED_RACEMASK,
     CONFIG_CHARACTER_CREATING_DISABLED_CLASSMASK,
     CONFIG_CHARACTERS_PER_ACCOUNT,
     CONFIG_CHARACTERS_PER_REALM,
-    CONFIG_HEROIC_CHARACTERS_PER_REALM,
-    CONFIG_CHARACTER_CREATING_MIN_LEVEL_FOR_HEROIC_CHARACTER,
     CONFIG_DEMON_HUNTERS_PER_REALM,
     CONFIG_CHARACTER_CREATING_MIN_LEVEL_FOR_DEMON_HUNTER,
     CONFIG_SKIP_CINEMATICS,
     CONFIG_MAX_PLAYER_LEVEL,
     CONFIG_MIN_DUALSPEC_LEVEL,
     CONFIG_START_PLAYER_LEVEL,
-    CONFIG_START_HEROIC_PLAYER_LEVEL,
+    CONFIG_START_DEATH_KNIGHT_PLAYER_LEVEL,
     CONFIG_START_DEMON_HUNTER_PLAYER_LEVEL,
     CONFIG_START_PLAYER_MONEY,
     CONFIG_CURRENCY_START_APEXIS_CRYSTALS,
@@ -333,14 +331,13 @@ enum WorldIntConfigs
     CONFIG_PVP_TOKEN_MAP_TYPE,
     CONFIG_PVP_TOKEN_ID,
     CONFIG_PVP_TOKEN_COUNT,
-    CONFIG_INTERVAL_LOG_UPDATE,
-    CONFIG_MIN_LOG_UPDATE,
     CONFIG_ENABLE_SINFO_LOGIN,
     CONFIG_PLAYER_ALLOW_COMMANDS,
     CONFIG_NUMTHREADS,
     CONFIG_LOGDB_CLEARINTERVAL,
     CONFIG_LOGDB_CLEARTIME,
     CONFIG_CLIENTCACHE_VERSION,
+    CONFIG_HOTFIX_CACHE_VERSION,
     CONFIG_GUILD_NEWS_LOG_COUNT,
     CONFIG_GUILD_EVENT_LOG_COUNT,
     CONFIG_GUILD_BANK_EVENT_LOG_COUNT,
@@ -350,7 +347,8 @@ enum WorldIntConfigs
     CONFIG_CHARDELETE_KEEP_DAYS,
     CONFIG_CHARDELETE_METHOD,
     CONFIG_CHARDELETE_MIN_LEVEL,
-    CONFIG_CHARDELETE_HEROIC_MIN_LEVEL,
+    CONFIG_CHARDELETE_DEATH_KNIGHT_MIN_LEVEL,
+    CONFIG_CHARDELETE_DEMON_HUNTER_MIN_LEVEL,
     CONFIG_AUTOBROADCAST_CENTER,
     CONFIG_AUTOBROADCAST_INTERVAL,
     CONFIG_MAX_RESULTS_LOOKUP_COMMANDS,
@@ -379,7 +377,6 @@ enum WorldIntConfigs
     CONFIG_TOLBARAD_NOBATTLETIME,
     CONFIG_TOLBARAD_RESTART_AFTER_CRASH,
     CONFIG_GUILD_SAVE_INTERVAL,
-    CONFIG_GUILD_UNDELETABLE_LEVEL,
     CONFIG_PACKET_SPOOF_POLICY,
     CONFIG_PACKET_SPOOF_BANMODE,
     CONFIG_PACKET_SPOOF_BANDURATION,
@@ -406,6 +403,12 @@ enum WorldIntConfigs
     CONFIG_BLACKMARKET_MAXAUCTIONS,
     CONFIG_BLACKMARKET_UPDATE_PERIOD,
     INT_CONFIG_VALUE_COUNT
+};
+
+enum WorldInt64Configs
+{
+    CONFIG_CHARACTER_CREATING_DISABLED_RACEMASK,
+    INT64_CONFIT_VALUE_COUNT
 };
 
 /// Server rates
@@ -543,26 +546,20 @@ enum WorldStates
     WS_GUILD_WEEKLY_RESET_TIME  = 20050,                     // Next guild week reset time
 };
 
-#define MAX_CHARACTERS_PER_REALM 12
-
 /// Storage class for commands issued for delayed execution
-struct CliCommandHolder
+struct TC_GAME_API CliCommandHolder
 {
-    typedef void Print(void*, const char*);
-    typedef void CommandFinished(void*, bool success);
+    typedef void(*Print)(void*, const char*);
+    typedef void(*CommandFinished)(void*, bool success);
 
     void* m_callbackArg;
     char *m_command;
-    Print* m_print;
+    Print m_print;
 
-    CommandFinished* m_commandFinished;
+    CommandFinished m_commandFinished;
 
-    CliCommandHolder(void* callbackArg, const char *command, Print* zprint, CommandFinished* commandFinished)
-        : m_callbackArg(callbackArg), m_command(strdup(command)), m_print(zprint), m_commandFinished(commandFinished)
-    {
-    }
-
-    ~CliCommandHolder() { free(m_command); }
+    CliCommandHolder(void* callbackArg, char const* command, Print zprint, CommandFinished commandFinished);
+    ~CliCommandHolder();
 
 private:
     CliCommandHolder(CliCommandHolder const& right) = delete;
@@ -570,17 +567,6 @@ private:
 };
 
 typedef std::unordered_map<uint32, WorldSession*> SessionMap;
-
-struct CharacterInfo
-{
-    std::string Name;
-    uint32 AccountId;
-    uint8 Class;
-    uint8 Race;
-    uint8 Sex;
-    uint8 Level;
-    bool IsDeleted;
-};
 
 /// The World
 class TC_GAME_API World
@@ -659,16 +645,6 @@ class TC_GAME_API World
 
         /// Get the path where data (dbc, maps) are stored on disk
         std::string const& GetDataPath() const { return m_dataPath; }
-
-        /// When server started?
-        time_t const& GetStartTime() const { return m_startTime; }
-        /// What time is it?
-        time_t const& GetGameTime() const { return m_gameTime; }
-        /// Uptime (in secs)
-        uint32 GetUptime() const { return uint32(m_gameTime - m_startTime); }
-        /// Update time
-        uint32 GetUpdateTime() const { return m_updateTime; }
-        void SetRecordDiffInterval(int32 t) { if (t >= 0) m_int_configs[CONFIG_INTERVAL_LOG_UPDATE] = (uint32)t; }
 
         /// Next daily quests and random bg reset time
         time_t GetNextDailyQuestsResetTime() const { return m_NextDailyQuestReset; }
@@ -751,13 +727,18 @@ class TC_GAME_API World
             return index < INT_CONFIG_VALUE_COUNT ? m_int_configs[index] : 0;
         }
 
+        uint64 GetUInt64Config(WorldInt64Configs index) const
+        {
+            return index < INT64_CONFIT_VALUE_COUNT ? m_int64_configs[index] : 0;
+        }
+
         void setWorldState(uint32 index, uint32 value);
         uint32 getWorldState(uint32 index) const;
         void LoadWorldStates();
 
         /// Are we on a "Player versus Player" server?
-        bool IsPvPRealm() const { return (getIntConfig(CONFIG_GAME_TYPE) == REALM_TYPE_PVP || getIntConfig(CONFIG_GAME_TYPE) == REALM_TYPE_RPPVP || getIntConfig(CONFIG_GAME_TYPE) == REALM_TYPE_FFA_PVP); }
-        bool IsFFAPvPRealm() const { return getIntConfig(CONFIG_GAME_TYPE) == REALM_TYPE_FFA_PVP; }
+        bool IsPvPRealm() const;
+        bool IsFFAPvPRealm() const;
 
         void KickAll();
         void KickAllLess(AccountTypes sec);
@@ -789,20 +770,9 @@ class TC_GAME_API World
         void LoadDBVersion();
         char const* GetDBVersion() const { return m_DBVersion.c_str(); }
 
-        void ResetTimeDiffRecord();
-        void RecordTimeDiff(std::string const& text);
-
         void LoadAutobroadcasts();
 
         void UpdateAreaDependentAuras();
-
-        CharacterInfo const* GetCharacterInfo(ObjectGuid const& guid) const;
-        void AddCharacterInfo(ObjectGuid const& guid, uint32 accountId, std::string const& name, uint8 gender, uint8 race, uint8 playerClass, uint8 level, bool isDeleted);
-        void DeleteCharacterInfo(ObjectGuid const& guid) { _characterInfoStore.erase(guid); }
-        bool HasCharacterInfo(ObjectGuid const& guid) { return _characterInfoStore.find(guid) != _characterInfoStore.end(); }
-        void UpdateCharacterInfo(ObjectGuid const& guid, std::string const& name, uint8 gender = GENDER_NONE, uint8 race = RACE_NONE);
-        void UpdateCharacterInfoLevel(ObjectGuid const& guid, uint8 level);
-        void UpdateCharacterInfoDeleted(ObjectGuid const& guid, bool deleted, std::string const* name = nullptr);
 
         uint32 GetCleaningFlags() const { return m_CleaningFlags; }
         void   SetCleaningFlags(uint32 flags) { m_CleaningFlags = flags; }
@@ -814,6 +784,7 @@ class TC_GAME_API World
 
     protected:
         void _UpdateGameTime();
+
         // callback for UpdateRealmCharacters
         void _UpdateRealmCharCount(PreparedQueryResult resultCharCount);
 
@@ -842,15 +813,10 @@ class TC_GAME_API World
 
         bool m_isClosed;
 
-        time_t m_startTime;
-        time_t m_gameTime;
         IntervalTimer m_timers[WUPDATE_COUNT];
         time_t mail_timer;
         time_t mail_timer_expires;
         time_t blackmarket_timer;
-        uint32 m_updateTime, m_updateTimeSum;
-        uint32 m_updateTimeCount;
-        uint32 m_currentTime;
 
         SessionMap m_sessions;
         typedef std::unordered_map<uint32, time_t> DisconnectMap;
@@ -864,6 +830,7 @@ class TC_GAME_API World
 
         float rate_values[MAX_RATES];
         uint32 m_int_configs[INT_CONFIG_VALUE_COUNT];
+        uint64 m_int64_configs[INT64_CONFIT_VALUE_COUNT];
         bool m_bool_configs[BOOL_CONFIG_VALUE_COUNT];
         float m_float_configs[FLOAT_CONFIG_VALUE_COUNT];
         typedef std::map<uint32, uint32> WorldStatesMap;
@@ -916,10 +883,6 @@ class TC_GAME_API World
         };
         typedef std::unordered_map<uint8, Autobroadcast> AutobroadcastContainer;
         AutobroadcastContainer m_Autobroadcasts;
-
-        typedef std::map<ObjectGuid, CharacterInfo> CharacterInfoContainer;
-        CharacterInfoContainer _characterInfoStore;
-        void LoadCharacterInfoStore();
 
         void ProcessQueryCallbacks();
         QueryCallbackProcessor _queryProcessor;

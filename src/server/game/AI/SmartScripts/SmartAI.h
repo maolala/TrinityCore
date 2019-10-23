@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,15 +18,13 @@
 #ifndef TRINITY_SMARTAI_H
 #define TRINITY_SMARTAI_H
 
-#include "Common.h"
-#include "Creature.h"
+#include "Define.h"
 #include "CreatureAI.h"
-#include "Unit.h"
-#include "Spell.h"
-
-#include "SmartScript.h"
-#include "SmartScriptMgr.h"
 #include "GameObjectAI.h"
+#include "Position.h"
+#include "SmartScript.h"
+
+struct WayPoint;
 
 enum SmartEscortState
 {
@@ -38,7 +36,7 @@ enum SmartEscortState
 
 enum SmartEscortVars
 {
-    SMART_ESCORT_MAX_PLAYER_DIST        = 50,
+    SMART_ESCORT_MAX_PLAYER_DIST        = 60,
     SMART_MAX_AID_DIST    = SMART_ESCORT_MAX_PLAYER_DIST / 2
 };
 
@@ -66,7 +64,7 @@ class TC_GAME_API SmartAI : public CreatureAI
         void SetCombatMove(bool on);
         bool CanCombatMove() { return mCanCombatMove; }
         void SetFollow(Unit* target, float dist = 0.0f, float angle = 0.0f, uint32 credit = 0, uint32 end = 0, uint32 creditType = 0);
-        void StopFollow();
+        void StopFollow(bool complete);
 
         void SetScript9(SmartScriptHolder& e, uint32 entry, Unit* invoker);
         SmartScript* GetScript() { return &mScript; }
@@ -168,7 +166,9 @@ class TC_GAME_API SmartAI : public CreatureAI
         // Makes the creature run/walk
         void SetRun(bool run = true);
 
-        void SetFly(bool fly = true);
+        void SetCanFly(bool fly = true);
+
+        void SetDisableGravity(bool disable = true);
 
         void SetSwim(bool swim = true);
 
@@ -187,14 +187,18 @@ class TC_GAME_API SmartAI : public CreatureAI
 
         uint32 mEscortQuestID;
 
-        void SetDespawnTime (uint32 t)
+        void SetDespawnTime (uint32 t, uint32 r = 0)
         {
             mDespawnTime = t;
+            mRespawnTime = r;
             mDespawnState = t ? 1 : 0;
         }
+
         void StartDespawn() { mDespawnState = 2; }
 
         void OnSpellClick(Unit* clicker, bool& result) override;
+
+        void SetWPPauseTimer(uint32 time) { mWPPauseTimer = time; }
 
     private:
         bool mIsCharmed;
@@ -215,6 +219,7 @@ class TC_GAME_API SmartAI : public CreatureAI
         uint32 mLastWPIDReached;
         bool mWPReached;
         uint32 mWPPauseTimer;
+        uint32 mEscortNPCFlags;
         WayPoint* mLastWP;
         Position mLastOOCPos;//set on enter combat
         uint32 GetWPCount() const { return mWayPoints ? uint32(mWayPoints->size()) : 0; }
@@ -228,10 +233,16 @@ class TC_GAME_API SmartAI : public CreatureAI
         bool AssistPlayerInCombatAgainst(Unit* who);
 
         uint32 mDespawnTime;
+        uint32 mRespawnTime;
         uint32 mDespawnState;
-        void UpdateDespawn(const uint32 diff);
+        void UpdateDespawn(uint32 diff);
         uint32 mEscortInvokerCheckTimer;
         bool mJustReset;
+
+        // Vehicle conditions
+        void CheckConditions(uint32 diff);
+        bool mHasConditions;
+        uint32 mConditionsTimer;
 };
 
 class TC_GAME_API SmartGameObjectAI : public GameObjectAI
@@ -246,7 +257,7 @@ class TC_GAME_API SmartGameObjectAI : public GameObjectAI
         SmartScript* GetScript() { return &mScript; }
         static int Permissible(const GameObject* g);
 
-        bool GossipHello(Player* player, bool isUse) override;
+        bool GossipHello(Player* player, bool reportUse) override;
         bool GossipSelect(Player* player, uint32 sender, uint32 action) override;
         bool GossipSelectCode(Player* /*player*/, uint32 /*sender*/, uint32 /*action*/, const char* /*code*/) override;
         bool QuestAccept(Player* player, Quest const* quest) override;
@@ -257,6 +268,7 @@ class TC_GAME_API SmartGameObjectAI : public GameObjectAI
         void OnGameEvent(bool start, uint16 eventId) override;
         void OnStateChanged(uint32 state, Unit* unit) override;
         void EventInform(uint32 eventId) override;
+        void SpellHit(Unit* unit, const SpellInfo* spellInfo) override;
 
     private:
         SmartScript mScript;

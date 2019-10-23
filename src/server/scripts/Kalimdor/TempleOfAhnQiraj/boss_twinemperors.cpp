@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -24,11 +24,12 @@ SDCategory: Temple of Ahn'Qiraj
 EndScriptData */
 
 #include "ScriptMgr.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "ScriptedCreature.h"
+#include "SpellInfo.h"
 #include "temple_of_ahnqiraj.h"
-#include "WorldPacket.h"
-#include "Item.h"
-#include "Spell.h"
 
 enum Spells
 {
@@ -125,7 +126,7 @@ struct boss_twinemperorsAI : public ScriptedAI
             if (ohealth <= 0)
             {
                 pOtherBoss->setDeathState(JUST_DIED);
-                pOtherBoss->SetFlag(OBJECT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE);
+                pOtherBoss->AddDynamicFlag(UNIT_DYNFLAG_LOOTABLE);
             }
         }
     }
@@ -137,7 +138,7 @@ struct boss_twinemperorsAI : public ScriptedAI
         {
             pOtherBoss->SetHealth(0);
             pOtherBoss->setDeathState(JUST_DIED);
-            pOtherBoss->SetFlag(OBJECT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE);
+            pOtherBoss->AddDynamicFlag(UNIT_DYNFLAG_LOOTABLE);
             ENSURE_AI(boss_twinemperorsAI, pOtherBoss->AI())->DontYellWhenDead = true;
         }
         if (!DontYellWhenDead)                              // I hope AI is not threaded
@@ -395,7 +396,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_veknilashAI>(creature);
+        return GetAQ40AI<boss_veknilashAI>(creature);
     }
 
     struct boss_veknilashAI : public boss_twinemperorsAI
@@ -483,7 +484,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_veklorAI>(creature);
+        return GetAQ40AI<boss_veklorAI>(creature);
     }
 
     struct boss_veklorAI : public boss_twinemperorsAI

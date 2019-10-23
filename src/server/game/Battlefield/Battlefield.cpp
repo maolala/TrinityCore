@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,18 +18,23 @@
 #include "Battlefield.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
+#include "BattlegroundPackets.h"
 #include "CellImpl.h"
 #include "CreatureTextMgr.h"
+#include "DB2Stores.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
 #include "Group.h"
 #include "GroupMgr.h"
+#include "Log.h"
 #include "Map.h"
 #include "MapManager.h"
+#include "MiscPackets.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
-#include "WorldPacket.h"
-#include "MiscPackets.h"
+#include "WorldSession.h"
+#include "WorldStatePackets.h"
+#include <G3D/g3dmath.h>
 
 Battlefield::Battlefield()
 {
@@ -250,6 +255,11 @@ void Battlefield::InvitePlayersInZoneToWar()
             }
         }
     }
+}
+
+uint64 Battlefield::GetQueueId() const
+{
+    return MAKE_PAIR64(m_BattleId | 0x20000, 0x1F100000);
 }
 
 void Battlefield::InvitePlayerToWar(Player* player)
@@ -483,7 +493,7 @@ void Battlefield::HideNpc(Creature* creature)
 {
     creature->CombatStop();
     creature->SetReactState(REACT_PASSIVE);
-    creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+    creature->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE));
     creature->DisappearAndDie();
     creature->SetVisible(false);
 }
@@ -491,14 +501,14 @@ void Battlefield::HideNpc(Creature* creature)
 void Battlefield::ShowNpc(Creature* creature, bool aggressive)
 {
     creature->SetVisible(true);
-    creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+    creature->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE));
     if (!creature->IsAlive())
         creature->Respawn(true);
     if (aggressive)
         creature->SetReactState(REACT_AGGRESSIVE);
     else
     {
-        creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+        creature->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
         creature->SetReactState(REACT_PASSIVE);
     }
 }
@@ -787,25 +797,20 @@ Creature* Battlefield::SpawnCreature(uint32 entry, Position const& pos)
         return nullptr;
     }
 
-    CreatureTemplate const* cinfo = sObjectMgr->GetCreatureTemplate(entry);
-    if (!cinfo)
+    if (!sObjectMgr->GetCreatureTemplate(entry))
     {
         TC_LOG_ERROR("bg.battlefield", "Battlefield::SpawnCreature: entry %u does not exist.", entry);
         return nullptr;
     }
 
-    float x, y, z, o;
-    pos.GetPosition(x, y, z, o);
-
-    Creature* creature = new Creature();
-    if (!creature->Create(map->GenerateLowGuid<HighGuid::Creature>(), map, PHASEMASK_NORMAL, entry, x, y, z, o))
+    Creature* creature = Creature::CreateCreature(entry, map, pos);
+    if (!creature)
     {
         TC_LOG_ERROR("bg.battlefield", "Battlefield::SpawnCreature: Can't create creature entry: %u", entry);
-        delete creature;
         return nullptr;
     }
 
-    creature->SetHomePosition(x, y, z, o);
+    creature->SetHomePosition(pos);
 
     // Set creature in world
     map->AddToMap(creature);
@@ -815,7 +820,7 @@ Creature* Battlefield::SpawnCreature(uint32 entry, Position const& pos)
 }
 
 // Method for spawning gameobject on map
-GameObject* Battlefield::SpawnGameObject(uint32 entry, Position const& pos, G3D::Quat const& rot)
+GameObject* Battlefield::SpawnGameObject(uint32 entry, Position const& pos, QuaternionData const& rot)
 {
     // Get map object
     Map* map = sMapMgr->CreateBaseMap(m_MapId);
@@ -825,19 +830,17 @@ GameObject* Battlefield::SpawnGameObject(uint32 entry, Position const& pos, G3D:
         return nullptr;
     }
 
-    GameObjectTemplate const* goInfo = sObjectMgr->GetGameObjectTemplate(entry);
-    if (!goInfo)
+    if (!sObjectMgr->GetGameObjectTemplate(entry))
     {
         TC_LOG_ERROR("bg.battlefield", "Battlefield::SpawnGameObject: GameObject template %u not found in database! Battlefield not created!", entry);
         return nullptr;
     }
 
     // Create gameobject
-    GameObject* go = new GameObject;
-    if (!go->Create(entry, map, PHASEMASK_NORMAL, pos, rot, 255, GO_STATE_READY))
+    GameObject* go = GameObject::CreateGameObject(entry, map, pos, rot, 255, GO_STATE_READY);
+    if (!go)
     {
         TC_LOG_ERROR("bg.battlefield", "Battlefield::SpawnGameObject: Could not create gameobject template %u! Battlefield has not been created!", entry);
-        delete go;
         return nullptr;
     }
 
@@ -1011,7 +1014,7 @@ bool BfCapturePoint::Update(uint32 diff)
         std::list<Player*> players;
         Trinity::AnyPlayerInObjectRangeCheck checker(capturePoint, radius);
         Trinity::PlayerListSearcher<Trinity::AnyPlayerInObjectRangeCheck> searcher(capturePoint, players, checker);
-        capturePoint->VisitNearbyWorldObject(radius, searcher);
+        Cell::VisitWorldObjects(capturePoint, searcher, radius);
 
         for (std::list<Player*>::iterator itr = players.begin(); itr != players.end(); ++itr)
             if ((*itr)->IsOutdoorPvPActive())

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -16,16 +16,22 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Common.h"
-#include "WorldPacket.h"
 #include "WorldSession.h"
-#include "World.h"
-#include "ObjectMgr.h"
-#include "GuildMgr.h"
-#include "Log.h"
-#include "Opcodes.h"
+#include "Common.h"
+#include "CharacterCache.h"
+#include "DatabaseEnv.h"
 #include "Guild.h"
+#include "GuildMgr.h"
+#include "Item.h"
+#include "Log.h"
+#include "ObjectAccessor.h"
+#include "ObjectMgr.h"
+#include "Opcodes.h"
 #include "PetitionPackets.h"
+#include "Player.h"
+#include "World.h"
+#include "WorldPacket.h"
+#include <sstream>
 
 #define CHARTER_DISPLAY_ID 16161
 #define GUILD_CHARTER_ITEM_ID 5863
@@ -35,7 +41,7 @@ void WorldSession::HandlePetitionBuy(WorldPackets::Petition::PetitionBuy& packet
     TC_LOG_DEBUG("network", "Petitioner %s tried sell petition: title %s", packet.Unit.ToString().c_str(), packet.Title.c_str());
 
     // prevent cheating
-    Creature* creature = GetPlayer()->GetNPCIfCanInteractWith(packet.Unit, UNIT_NPC_FLAG_PETITIONER);
+    Creature* creature = GetPlayer()->GetNPCIfCanInteractWith(packet.Unit, UNIT_NPC_FLAG_PETITIONER, UNIT_NPC_FLAG_2_NONE);
     if (!creature)
     {
         TC_LOG_DEBUG("network", "WORLD: HandlePetitionBuyOpcode - %s not found or you can't interact with him.", packet.Unit.ToString().c_str());
@@ -91,16 +97,14 @@ void WorldSession::HandlePetitionBuy(WorldPackets::Petition::PetitionBuy& packet
     if (!charter)
         return;
 
-    charter->SetUInt32Value(ITEM_FIELD_ENCHANTMENT, charter->GetGUID().GetCounter());
-    // ITEM_FIELD_ENCHANTMENT_1_1 is guild/arenateam id
-    // ITEM_FIELD_ENCHANTMENT_1_1+1 is current signatures count (showed on item)
+    charter->SetPetitionId(charter->GetGUID().GetCounter());
     charter->SetState(ITEM_CHANGED, _player);
     _player->SendNewItem(charter, 1, true, false);
 
     // a petition is invalid, if both the owner and the type matches
     // we checked above, if this player is in an arenateam, so this must be
     // datacorruption
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_BY_OWNER);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_BY_OWNER);
     stmt->setUInt64(0, _player->GetGUID().GetCounter());
     PreparedQueryResult result = CharacterDatabase.Query(stmt);
 
@@ -120,7 +124,7 @@ void WorldSession::HandlePetitionBuy(WorldPackets::Petition::PetitionBuy& packet
 
     TC_LOG_DEBUG("network", "Invalid petition GUIDs: %s", ssInvalidPetitionGUIDs.str().c_str());
     CharacterDatabase.EscapeString(packet.Title);
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     trans->PAppend("DELETE FROM petition WHERE petitionguid IN (%s)",  ssInvalidPetitionGUIDs.str().c_str());
     trans->PAppend("DELETE FROM petition_sign WHERE petitionguid IN (%s)", ssInvalidPetitionGUIDs.str().c_str());
 
@@ -141,7 +145,7 @@ void WorldSession::HandlePetitionShowSignatures(WorldPackets::Petition::Petition
     if (_player->GetGuildId())
         return;
 
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_SIGNATURE);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_SIGNATURE);
 
     stmt->setUInt64(0, packet.Item.GetCounter());
 
@@ -156,7 +160,7 @@ void WorldSession::HandlePetitionShowSignatures(WorldPackets::Petition::Petition
     WorldPackets::Petition::ServerPetitionShowSignatures signaturesPacket;
     signaturesPacket.Item = packet.Item;
     signaturesPacket.Owner = _player->GetGUID();
-    signaturesPacket.OwnerAccountID = ObjectGuid::Create<HighGuid::WowAccount>(ObjectMgr::GetPlayerAccountIdByGUID(_player->GetGUID()));
+    signaturesPacket.OwnerAccountID = ObjectGuid::Create<HighGuid::WowAccount>(sCharacterCache->GetCharacterAccountIdByGuid(_player->GetGUID()));
     signaturesPacket.PetitionID = int32(packet.Item.GetCounter());  // @todo verify that...
 
     signaturesPacket.Signatures.reserve(signs);
@@ -193,7 +197,7 @@ void WorldSession::SendPetitionQueryOpcode(ObjectGuid petitionGUID)
     WorldPackets::Petition::QueryPetitionResponse responsePacket;
     responsePacket.PetitionID = uint32(petitionGUID.GetCounter());  // PetitionID (in Trinity always same as GUID_LOPART(petition guid))
 
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION);
 
     stmt->setUInt64(0, petitionGUID.GetCounter());
 
@@ -247,7 +251,7 @@ void WorldSession::HandlePetitionRenameGuild(WorldPackets::Petition::PetitionRen
         return;
     }
 
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_PETITION_NAME);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_PETITION_NAME);
 
     stmt->setString(0, packet.NewGuildName);
     stmt->setUInt64(1, packet.PetitionGuid.GetCounter());
@@ -264,7 +268,7 @@ void WorldSession::HandlePetitionRenameGuild(WorldPackets::Petition::PetitionRen
 
 void WorldSession::HandleSignPetition(WorldPackets::Petition::SignPetition& packet)
 {
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_SIGNATURES);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_SIGNATURES);
 
     stmt->setUInt64(0, packet.PetitionGUID.GetCounter());
     stmt->setUInt64(1, packet.PetitionGUID.GetCounter());
@@ -279,13 +283,13 @@ void WorldSession::HandleSignPetition(WorldPackets::Petition::SignPetition& pack
 
     Field* fields = result->Fetch();
     ObjectGuid ownerGuid = ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64());
-    //uint64 signs = fields[1].GetUInt64();
+    uint64 signs = fields[1].GetUInt64();
 
     if (ownerGuid == _player->GetGUID())
         return;
 
     // not let enemies sign guild charter
-    if (!sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_GUILD) && GetPlayer()->GetTeam() != ObjectMgr::GetPlayerTeamByGUID(ownerGuid))
+    if (!sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_GUILD) && GetPlayer()->GetTeam() != sCharacterCache->GetCharacterTeamByGuid(ownerGuid))
     {
         Guild::SendCommandResult(this, GUILD_COMMAND_CREATE_GUILD, ERR_GUILD_NOT_ALLIED);
         return;
@@ -344,10 +348,11 @@ void WorldSession::HandleSignPetition(WorldPackets::Petition::SignPetition& pack
     // close at signer side
     SendPacket(signResult.Write());
 
-    // update signs count on charter, required testing...
-    //Item* item = _player->GetItemByGuid(petitionguid));
-    //if (item)
-    //    item->SetUInt32Value(ITEM_FIELD_ENCHANTMENT_1_1+1, signs);
+    if (Item* item = _player->GetItemByGuid(packet.PetitionGUID))
+    {
+        item->SetPetitionNumSignatures(signs);
+        item->SetState(ITEM_CHANGED, _player);
+    }
 
     // update for owner if online
     if (Player* owner = ObjectAccessor::FindConnectedPlayer(ownerGuid))
@@ -358,7 +363,7 @@ void WorldSession::HandleDeclinePetition(WorldPackets::Petition::DeclinePetition
 {
     TC_LOG_DEBUG("network", "Petition %s declined by %s", packet.PetitionGUID.ToString().c_str(), _player->GetGUID().ToString().c_str());
 
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_OWNER_BY_GUID);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_OWNER_BY_GUID);
     stmt->setUInt64(0, packet.PetitionGUID.GetCounter());
     PreparedQueryResult result = CharacterDatabase.Query(stmt);
 
@@ -406,7 +411,7 @@ void WorldSession::HandleOfferPetition(WorldPackets::Petition::OfferPetition& pa
         return;
     }
 
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_SIGNATURE);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_SIGNATURE);
     stmt->setUInt64(0, packet.ItemGUID.GetCounter());
     PreparedQueryResult result = CharacterDatabase.Query(stmt);
 
@@ -453,7 +458,7 @@ void WorldSession::HandleTurnInPetition(WorldPackets::Petition::TurnInPetition& 
     ObjectGuid ownerguid;
     std::string name;
 
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION);
     stmt->setUInt64(0, packet.Item.GetCounter());
     PreparedQueryResult result = CharacterDatabase.Query(stmt);
 
@@ -531,18 +536,24 @@ void WorldSession::HandleTurnInPetition(WorldPackets::Petition::TurnInPetition& 
 
     Guild::SendCommandResult(this, GUILD_COMMAND_CREATE_GUILD, ERR_GUILD_COMMAND_SUCCESS, name);
 
-    // Add members from signatures
-    for (uint8 i = 0; i < signatures; ++i)
     {
-        Field* fields = result->Fetch();
-        guild->AddMember(ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64()));
+        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
-        // Checking the return value just to be double safe
-        if (!result->NextRow())
-            break;
+        // Add members from signatures
+        for (uint8 i = 0; i < signatures; ++i)
+        {
+            Field* fields = result->Fetch();
+            guild->AddMember(trans, ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64()));
+
+            // Checking the return value just to be double safe
+            if (!result->NextRow())
+                break;
+        }
+
+        CharacterDatabase.CommitTransaction(trans);
     }
 
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_PETITION_BY_GUID);
     stmt->setUInt64(0, packet.Item.GetCounter());
@@ -569,7 +580,7 @@ void WorldSession::HandlePetitionShowList(WorldPackets::Petition::PetitionShowLi
 
 void WorldSession::SendPetitionShowList(ObjectGuid guid)
 {
-    Creature* creature = GetPlayer()->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_PETITIONER);
+    Creature* creature = GetPlayer()->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_PETITIONER, UNIT_NPC_FLAG_2_NONE);
     if (!creature)
     {
         TC_LOG_DEBUG("network", "WORLD: HandlePetitionShowListOpcode - %s not found or you can't interact with him.", guid.ToString().c_str());

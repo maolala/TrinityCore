@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,6 +17,8 @@
 
 #ifndef SUNWELL_PLATEAU_H
 #define SUNWELL_PLATEAU_H
+
+#include "CreatureAIImpl.h"
 
 #define SunwellPlateauScriptName "instance_sunwell_plateau"
 #define DataHeader "SWP"
@@ -112,8 +114,8 @@ enum SWPGameObjectIds
     GO_MURUS_GATE_2                          = 188118
 };
 
-template<class AI>
-AI* GetSunwellPlateauAI(Creature* creature)
+template<typename AI>
+inline AI* GetSunwellPlateauAI(Creature* creature)
 {
     return GetInstanceAI<AI>(creature, SunwellPlateauScriptName);
 }

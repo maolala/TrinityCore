@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -24,9 +24,12 @@ SDCategory: Coilfang Resevoir, Serpent Shrine Cavern
 EndScriptData */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "serpent_shrine.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "ScriptedEscortAI.h"
+#include "serpent_shrine.h"
+#include "TemporarySummon.h"
 
 enum FathomlordKarathress
 {
@@ -104,7 +107,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_fathomlord_karathressAI>(creature);
+        return GetSerpentshrineCavernAI<boss_fathomlord_karathressAI>(creature);
     }
 
     struct boss_fathomlord_karathressAI : public ScriptedAI
@@ -308,7 +311,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_fathomguard_sharkkisAI>(creature);
+        return GetSerpentshrineCavernAI<boss_fathomguard_sharkkisAI>(creature);
     }
 
     struct boss_fathomguard_sharkkisAI : public ScriptedAI
@@ -452,7 +455,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_fathomguard_tidalvessAI>(creature);
+        return GetSerpentshrineCavernAI<boss_fathomguard_tidalvessAI>(creature);
     }
 
     struct boss_fathomguard_tidalvessAI : public ScriptedAI
@@ -574,7 +577,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_fathomguard_caribdisAI>(creature);
+        return GetSerpentshrineCavernAI<boss_fathomguard_caribdisAI>(creature);
     }
 
     struct boss_fathomguard_caribdisAI : public ScriptedAI
@@ -665,7 +668,7 @@ public:
                 if (Creature* Cyclone = me->SummonCreature(CREATURE_CYCLONE, me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), float(rand32() % 5), TEMPSUMMON_TIMED_DESPAWN, 15000))
                 {
                     Cyclone->SetObjectScale(3.0f);
-                    Cyclone->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                    Cyclone->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                     Cyclone->setFaction(me->getFaction());
                     Cyclone->CastSpell(Cyclone, SPELL_CYCLONE_CYCLONE, true);
                     if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0))

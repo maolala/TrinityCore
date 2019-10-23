@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,8 +16,9 @@
  */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
+#include "MotionMaster.h"
 #include "naxxramas.h"
+#include "ScriptedCreature.h"
 
 enum Phases
 {
@@ -104,7 +105,7 @@ public:
             {
                 DoCastAOE(SPELL_TELEPORT_BACK);
                 me->SetReactState(REACT_AGGRESSIVE);
-                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE);
+                me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE));
             }
 
             balconyCount = 0;
@@ -242,7 +243,7 @@ public:
                     case EVENT_BALCONY:
                         events.SetPhase(PHASE_BALCONY);
                         me->SetReactState(REACT_PASSIVE);
-                        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE);
+                        me->AddUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE));
                         me->AttackStop();
                         me->StopMoving();
                         me->RemoveAllAuras();
@@ -298,7 +299,7 @@ public:
                         EnterPhaseGround();
                         break;
                     case EVENT_GROUND_ATTACKABLE:
-                        me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE);
+                        me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE));
                         me->SetReactState(REACT_AGGRESSIVE);
                         break;
                 }
@@ -334,7 +335,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_nothAI>(creature);
+        return GetNaxxramasAI<boss_nothAI>(creature);
     }
 };
 

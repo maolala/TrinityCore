@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,6 +18,9 @@
 #ifndef DEF_NAXXRAMAS_H
 #define DEF_NAXXRAMAS_H
 
+#include "CreatureAIImpl.h"
+
+#define NaxxramasScriptName "instance_naxxramas"
 #define DataHeader "NAX"
 
 uint32 const EncounterCount     = 15;
@@ -215,17 +218,11 @@ enum NAXInstanceTexts
     SAY_DIALOGUE_SAPPHIRON_LICH_KING2 = 2
 };
 
-/*
-template<class AI>
-CreatureAI* GetNaxxramasAI(Creature* creature)
+template<typename AI, typename T>
+inline AI* GetNaxxramasAI(T* obj)
 {
-    if (InstanceMap* instance = creature->GetMap()->ToInstanceMap())
-        if (instance->GetInstanceScript())
-            if (instance->GetScriptId() == sObjectMgr->GetScriptId(NaxxramasScriptName))
-                return new AI(creature);
-
-    return NULL;
+    return GetInstanceAI<AI>(obj, NaxxramasScriptName);
 }
-*/
+#define RegisterNaxxramasCreatureAI(ai_name) RegisterCreatureAIWithFactory(ai_name, GetNaxxramasAI)
 
 #endif

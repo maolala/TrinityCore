@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,11 +15,25 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ObjectMgr.h"
 #include "GuildFinderMgr.h"
+#include "DatabaseEnv.h"
+#include "DB2Stores.h"
+#include "Guild.h"
 #include "GuildMgr.h"
 #include "GuildFinderPackets.h"
+#include "Log.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
 #include "World.h"
+
+MembershipRequest::MembershipRequest() : _availability(0), _classRoles(0), _interests(0), _time(time(NULL))
+{
+}
+
+MembershipRequest::MembershipRequest(ObjectGuid const& playerGUID, ObjectGuid const& guildId, uint32 availability, uint32 classRoles, uint32 interests, std::string comment, time_t submitTime) :
+    _comment(std::move(comment)), _guildId(guildId), _playerGUID(playerGUID), _availability(availability), _classRoles(classRoles), _interests(interests), _time(submitTime)
+{
+}
 
 GuildFinderMgr::GuildFinderMgr()
 {
@@ -65,7 +79,7 @@ void GuildFinderMgr::LoadGuildSettings()
 
         TeamId guildTeam = TEAM_NEUTRAL;
         if (ChrRacesEntry const* raceEntry = sChrRacesStore.LookupEntry(fields[7].GetUInt8()))
-            guildTeam = (TeamId)raceEntry->TeamID;
+            guildTeam = (TeamId)raceEntry->Alliance;
 
         LFGuildSettings settings(listed, guildTeam, guildId, classRoles, availability, interests, level, comment);
         _guildSettings[guildId] = settings;
@@ -102,7 +116,7 @@ void GuildFinderMgr::LoadMembershipRequests()
         std::string comment = fields[5].GetString();
         uint32 submitTime   = fields[6].GetUInt32();
 
-        MembershipRequest request(playerId, guildId, availability, classRoles, interests, comment, time_t(submitTime));
+        MembershipRequest request(playerId, guildId, availability, classRoles, interests, std::move(comment), time_t(submitTime));
 
         _membershipRequestsByGuild[guildId][playerId] = request;
         _membershipRequestsByPlayer[playerId][guildId] = request;
@@ -118,8 +132,8 @@ void GuildFinderMgr::AddMembershipRequest(ObjectGuid const& guildGuid, Membershi
     _membershipRequestsByGuild[guildGuid][request.GetPlayerGUID()] = request;
     _membershipRequestsByPlayer[request.GetPlayerGUID()][guildGuid] = request;
 
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_GUILD_FINDER_APPLICANT);
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_GUILD_FINDER_APPLICANT);
     stmt->setUInt64(0, request.GetGuildGuid().GetCounter());
     stmt->setUInt64(1, request.GetPlayerGUID().GetCounter());
     stmt->setUInt8(2, request.GetAvailability());
@@ -145,10 +159,10 @@ void GuildFinderMgr::RemoveAllMembershipRequestsFromPlayer(ObjectGuid const& pla
     if (playerItr == _membershipRequestsByPlayer.end())
         return;
 
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     for (auto& guildRequestPair : playerItr->second)
     {
-        PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
         stmt->setUInt64(0, guildRequestPair.first.GetCounter());
         stmt->setUInt64(1, playerId.GetCounter());
         trans->Append(stmt);
@@ -189,9 +203,9 @@ void GuildFinderMgr::RemoveMembershipRequest(ObjectGuid const& playerId, ObjectG
             _membershipRequestsByPlayer.erase(playerItr);
     }
 
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
     stmt->setUInt64(0, guildId.GetCounter());
     stmt->setUInt64(1, playerId.GetCounter());
     trans->Append(stmt);
@@ -271,9 +285,9 @@ void GuildFinderMgr::SetGuildSettings(ObjectGuid const& guildGuid, LFGuildSettin
 {
     _guildSettings[guildGuid] = settings;
 
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_GUILD_FINDER_GUILD_SETTINGS);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_GUILD_FINDER_GUILD_SETTINGS);
     stmt->setUInt64(0, settings.GetGUID().GetCounter());
     stmt->setUInt8(1, settings.GetAvailability());
     stmt->setUInt8(2, settings.GetClassRoles());
@@ -288,13 +302,13 @@ void GuildFinderMgr::SetGuildSettings(ObjectGuid const& guildGuid, LFGuildSettin
 
 void GuildFinderMgr::DeleteGuild(ObjectGuid const& guildId)
 {
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     auto guildItr = _membershipRequestsByGuild.find(guildId);
     if (guildItr != _membershipRequestsByGuild.end())
     {
         for (auto playerRequestPair : guildItr->second)
         {
-            PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
             stmt->setUInt64(0, guildId.GetCounter());
             stmt->setUInt64(1, playerRequestPair.first.GetCounter());
             trans->Append(stmt);
@@ -313,7 +327,7 @@ void GuildFinderMgr::DeleteGuild(ObjectGuid const& guildId)
         }
     }
 
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_GUILD_SETTINGS);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_GUILD_SETTINGS);
     stmt->setUInt64(0, guildId.GetCounter());
     trans->Append(stmt);
 

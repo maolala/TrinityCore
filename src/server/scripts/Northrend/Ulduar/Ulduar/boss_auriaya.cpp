@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,6 +16,8 @@
  */
 
 #include "ScriptMgr.h"
+#include "InstanceScript.h"
+#include "ObjectAccessor.h"
 #include "ScriptedCreature.h"
 #include "SpellScript.h"
 #include "ulduar.h"
@@ -324,7 +326,7 @@ class npc_auriaya_seeping_trigger : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_auriaya_seeping_triggerAI>(creature);
+            return GetUlduarAI<npc_auriaya_seeping_triggerAI>(creature);
         }
 };
 
@@ -402,7 +404,7 @@ class npc_sanctum_sentry : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_sanctum_sentryAI>(creature);
+            return GetUlduarAI<npc_sanctum_sentryAI>(creature);
         }
 };
 
@@ -481,7 +483,7 @@ class npc_feral_defender : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_feral_defenderAI>(creature);
+            return GetUlduarAI<npc_feral_defenderAI>(creature);
         }
 };
 
@@ -534,7 +536,10 @@ class spell_auriaya_sentinel_blast : public SpellScriptLoader
 
             void FilterTargets(std::list<WorldObject*>& unitList)
             {
-                unitList.remove_if(PlayerOrPetCheck());
+                unitList.remove_if([](WorldObject* target)
+                {
+                    return target->GetTypeId() != TYPEID_PLAYER && (target->GetTypeId() != TYPEID_UNIT || !target->ToUnit()->IsPet());
+                });
             }
 
             void Register() override

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,11 +16,16 @@
  */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "SpellScript.h"
-#include "SpellAuraEffects.h"
-#include "ulduar.h"
+#include "InstanceScript.h"
+#include "Map.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
+#include "ScriptedCreature.h"
+#include "SpellAuraEffects.h"
+#include "SpellInfo.h"
+#include "SpellScript.h"
+#include "ulduar.h"
 
 enum VezaxYells
 {
@@ -371,7 +376,7 @@ class boss_saronite_animus : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<boss_saronite_animusAI>(creature);
+            return GetUlduarAI<boss_saronite_animusAI>(creature);
         }
 };
 
@@ -421,7 +426,7 @@ class npc_saronite_vapors : public CreatureScript
                 if (damage >= me->GetHealth())
                 {
                     damage = 0;
-                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+                    me->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE));
                     me->SetControlled(true, UNIT_STATE_ROOT);
                     me->SetStandState(UNIT_STAND_STATE_DEAD);
                     me->SetHealth(me->GetMaxHealth());
@@ -441,7 +446,7 @@ class npc_saronite_vapors : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_saronite_vaporsAI>(creature);
+            return GetUlduarAI<npc_saronite_vaporsAI>(creature);
         }
 };
 
@@ -456,9 +461,7 @@ class spell_general_vezax_mark_of_the_faceless : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spellInfo*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_MARK_OF_THE_FACELESS_DAMAGE))
-                    return false;
-                return true;
+                return ValidateSpellInfo({ SPELL_MARK_OF_THE_FACELESS_DAMAGE });
             }
 
             void HandleEffectPeriodic(AuraEffect const* aurEff)
@@ -519,9 +522,7 @@ class spell_general_vezax_saronite_vapors : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spell*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_SARONITE_VAPORS_ENERGIZE) || !sSpellMgr->GetSpellInfo(SPELL_SARONITE_VAPORS_DAMAGE))
-                    return false;
-                return true;
+                return ValidateSpellInfo({ SPELL_SARONITE_VAPORS_ENERGIZE, SPELL_SARONITE_VAPORS_DAMAGE });
             }
 
             void HandleEffectApply(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)

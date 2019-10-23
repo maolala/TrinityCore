@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2013 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -17,11 +17,13 @@
  */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "ScriptedEscortAI.h"
-#include "razorfen_kraul.h"
-#include "Player.h"
+#include "GameObject.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "PetAI.h"
+#include "Player.h"
+#include "razorfen_kraul.h"
+#include "ScriptedEscortAI.h"
 #include "SpellScript.h"
 
 enum Willix
@@ -102,7 +104,7 @@ public:
                     break;
                 case 45:
                     Talk(SAY_WIN, player);
-                    me->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_QUESTGIVER);
+                    me->AddNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
                     player->GroupEventHappens(QUEST_WILLIX_THE_IMPORTER, me);
                     break;
                 case 46:
@@ -132,7 +134,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_willixAI(creature);
+        return GetRazorfenKraulAI<npc_willixAI>(creature);
     }
 };
 
@@ -151,7 +153,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_snufflenose_gopherAI(creature);
+        return GetRazorfenKraulAI<npc_snufflenose_gopherAI>(creature);
     }
 
     struct npc_snufflenose_gopherAI : public PetAI
@@ -171,11 +173,11 @@ public:
         {
             if (type == POINT_MOTION_TYPE && id == POINT_TUBBER)
             {
-                if (GameObject* go = me->GetMap()->GetGameObject(TargetTubberGUID))
+                if (GameObject* go = ObjectAccessor::GetGameObject(*me, TargetTubberGUID))
                 {
                     go->SetRespawnTime(5 * MINUTE);
                     go->Refresh();
-                    go->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_INTERACT_COND);
+                    go->RemoveFlag(GO_FLAG_INTERACT_COND);
                 }
 
                 IsMovementActive = false;
@@ -194,7 +196,7 @@ public:
 
             tubbersInRange.remove_if([](GameObject* go)
             {
-                return go->isSpawned() || !go->HasFlag(GAMEOBJECT_FLAGS, GO_FLAG_INTERACT_COND);
+                return go->isSpawned() || !go->HasFlag(GO_FLAG_INTERACT_COND);
             });
 
             tubbersInRange.sort(Trinity::ObjectDistanceOrderPred(me));

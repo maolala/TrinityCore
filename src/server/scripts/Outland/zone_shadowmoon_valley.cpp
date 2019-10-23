@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -37,13 +37,17 @@ npc_enraged_spirit
 EndContentData */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "ScriptedGossip.h"
-#include "ScriptedEscortAI.h"
+#include "GameObject.h"
 #include "Group.h"
-#include "SpellScript.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
-#include "WorldSession.h"
+#include "QuestDef.h"
+#include "ScriptedEscortAI.h"
+#include "ScriptedGossip.h"
+#include "SpellInfo.h"
+#include "SpellScript.h"
+#include "TemporarySummon.h"
 
 /*#####
 # npc_invis_infernal_caster
@@ -74,7 +78,8 @@ public:
 
         void Reset() override
         {
-            ground = me->GetMap()->GetHeight(me->GetPositionX(), me->GetPositionY(), me->GetPositionZMinusOffset());
+            ground = me->GetPositionZ();
+            me->UpdateGroundPositionZ(me->GetPositionX(), me->GetPositionY(), ground);
             SummonInfernal();
             events.ScheduleEvent(EVENT_CAST_SUMMON_INFERNAL, urand(1000, 3000));
         }
@@ -162,7 +167,7 @@ public:
         {
             if (spell->Id == SPELL_SUMMON_INFERNAL)
             {
-                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_PACIFIED | UNIT_FLAG_NOT_SELECTABLE);
+                me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_PACIFIED | UNIT_FLAG_NOT_SELECTABLE));
                 me->SetDisplayId(MODEL_INFERNAL);
             }
         }
@@ -379,7 +384,6 @@ public:
 
             FlyTimer = 10000;
             me->SetDisableGravity(false);
-            me->SetVisible(true);
         }
 
         void SpellHit(Unit* caster, const SpellInfo* spell) override
@@ -423,10 +427,8 @@ public:
 
                     PlayerGUID.Clear();
                 }
-                me->SetVisible(false);
-                me->SetDisableGravity(false);
-                me->DealDamage(me, me->GetHealth(), NULL, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, NULL, false);
-                me->RemoveCorpse();
+
+                me->DespawnOrUnsummon(1);
             }
         }
 
@@ -538,7 +540,7 @@ public:
 
             if (id)
             {
-                me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_EAT);
+                me->SetEmoteState(EMOTE_ONESHOT_EAT);
                 PoisonTimer = 15000;
             }
         }
@@ -880,7 +882,7 @@ public:
             Initialize();
 
             me->AddUnitState(UNIT_STATE_ROOT);
-            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+            me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
             me->SetTarget(ObjectGuid::Empty);
         }
 
@@ -919,7 +921,7 @@ public:
             case 6:
                 if (Player* AggroTarget = ObjectAccessor::GetPlayer(*me, AggroTargetGUID))
                 {
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     me->ClearUnitState(UNIT_STATE_ROOT);
 
                     float x, y, z;
@@ -1192,10 +1194,9 @@ public:
 
         void JustDied(Unit* /*killer*/) override
         {
-            me->RemoveCorpse();
+            me->DespawnOrUnsummon();
             if (Creature* LordIllidan = (ObjectAccessor::GetCreature(*me, LordIllidanGUID)))
-                if (LordIllidan)
-                    ENSURE_AI(npc_lord_illidan_stormrage::npc_lord_illidan_stormrageAI, LordIllidan->AI())->LiveCounter();
+                ENSURE_AI(npc_lord_illidan_stormrage::npc_lord_illidan_stormrageAI, LordIllidan->AI())->LiveCounter();
         }
 
         void UpdateAI(uint32 diff) override

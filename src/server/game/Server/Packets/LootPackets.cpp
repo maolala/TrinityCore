@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -48,7 +48,6 @@ WorldPacket const* WorldPackets::Loot::LootResponse::Write()
     _worldPacket << uint32(Currencies.size());
     _worldPacket.WriteBit(Acquired);
     _worldPacket.WriteBit(AELooting);
-    _worldPacket.WriteBit(PersonalLooting);
     _worldPacket.FlushBits();
 
     for (LootItemData const& item : Items)
@@ -95,7 +94,8 @@ void WorldPackets::Loot::LootRelease::Read()
 
 WorldPacket const* WorldPackets::Loot::LootMoneyNotify::Write()
 {
-    _worldPacket << Money;
+    _worldPacket << uint64(Money);
+    _worldPacket << uint64(MoneyMod);
     _worldPacket.WriteBit(SoleLooter);
     _worldPacket.FlushBits();
 
@@ -127,6 +127,7 @@ WorldPacket const* WorldPackets::Loot::LootReleaseResponse::Write()
 WorldPacket const* WorldPackets::Loot::LootList::Write()
 {
     _worldPacket << Owner;
+    _worldPacket << LootObj;
 
     _worldPacket.WriteBit(Master.is_initialized());
     _worldPacket.WriteBit(RoundRobinWinner.is_initialized());

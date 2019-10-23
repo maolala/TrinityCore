@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,15 +15,24 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ObjectMgr.h"
-#include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "SpellAuraEffects.h"
-#include "Group.h"
-#include "Spell.h"
 #include "icecrown_citadel.h"
-#include "Vehicle.h"
+#include "DB2Stores.h"
+#include "GameObject.h"
 #include "GridNotifiers.h"
+#include "Group.h"
+#include "InstanceScript.h"
+#include "Map.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "ScriptedCreature.h"
+#include "Spell.h"
+#include "SpellAuraEffects.h"
+#include "SpellAuras.h"
+#include "SpellInfo.h"
+#include "SpellMgr.h"
+#include "SpellScript.h"
+#include "TemporarySummon.h"
+#include "Vehicle.h"
 
 enum Say
 {
@@ -242,7 +251,7 @@ class boss_professor_putricide : public CreatureScript
                     me->GetMotionMaster()->MovementExpired();
 
                 if (instance->GetBossState(DATA_ROTFACE) == DONE && instance->GetBossState(DATA_FESTERGUT) == DONE)
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE);
+                    me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE));
             }
 
             void EnterCombat(Unit* who) override
@@ -340,6 +349,9 @@ class boss_professor_putricide : public CreatureScript
 
             void DamageTaken(Unit* /*attacker*/, uint32& /*damage*/) override
             {
+                if (me->HasUnitState(UNIT_STATE_CASTING))
+                    return;
+
                 switch (_phase)
                 {
                     case PHASE_COMBAT_1:
@@ -838,9 +850,23 @@ class spell_putricide_gaseous_bloat : public SpellScriptLoader
                 }
             }
 
+            void HandleProc(ProcEventInfo& eventInfo)
+            {
+                uint32 stack = GetStackAmount();
+                Unit* caster = eventInfo.GetActor();
+
+                int32 const mod = caster->GetMap()->Is25ManRaid() ? 1500 : 1250;
+                int32 dmg = 0;
+                for (uint8 i = 1; i <= stack; ++i)
+                    dmg += mod * i;
+
+                caster->CastCustomSpell(SPELL_EXPUNGED_GAS, SPELLVALUE_BASE_POINT0, dmg);
+            }
+
             void Register() override
             {
                 OnEffectPeriodic += AuraEffectPeriodicFn(spell_putricide_gaseous_bloat_AuraScript::HandleExtraEffect, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE);
+                OnProc += AuraProcFn(spell_putricide_gaseous_bloat_AuraScript::HandleProc);
             }
         };
 
@@ -868,11 +894,7 @@ class spell_putricide_ooze_channel : public SpellScriptLoader
         private:
             bool Validate(SpellInfo const* spell) override
             {
-                if (!spell->ExcludeTargetAuraSpell)
-                    return false;
-                if (!sSpellMgr->GetSpellInfo(spell->ExcludeTargetAuraSpell))
-                    return false;
-                return true;
+                return spell->ExcludeTargetAuraSpell && ValidateSpellInfo({ spell->ExcludeTargetAuraSpell });
             }
 
             // set up initial variables and check if caster is creature
@@ -984,7 +1006,7 @@ class spell_putricide_slime_puddle_aura : public SpellScriptLoader
             void ReplaceAura()
             {
                 if (Unit* target = GetHitUnit())
-                    GetCaster()->AddAura((GetCaster()->GetMap()->GetSpawnMode() & 1) ? 72456 : 70346, target);
+                    GetCaster()->AddAura(GetCaster()->GetMap()->Is25ManRaid() ? 72456 : 70346, target);
             }
 
             void Register() override
@@ -1077,6 +1099,44 @@ class spell_putricide_ooze_eruption_searcher : public SpellScriptLoader
         }
 };
 
+// 71770 - Ooze Spell Tank Protection
+class spell_putricide_ooze_tank_protection : public SpellScriptLoader
+{
+    public:
+        spell_putricide_ooze_tank_protection() : SpellScriptLoader("spell_putricide_ooze_tank_protection") { }
+
+        class spell_putricide_ooze_tank_protection_AuraScript : public AuraScript
+        {
+            PrepareAuraScript(spell_putricide_ooze_tank_protection_AuraScript);
+
+            bool Validate(SpellInfo const* spellInfo) override
+            {
+                SpellEffectInfo const* effect0 = spellInfo->GetEffect(EFFECT_0);
+                SpellEffectInfo const* effect1 = spellInfo->GetEffect(EFFECT_1);
+                return effect0 && effect1 && ValidateSpellInfo({ effect0->TriggerSpell, effect1->TriggerSpell });
+            }
+
+            void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+            {
+                PreventDefaultAction();
+
+                Unit* actionTarget = eventInfo.GetActionTarget();
+                actionTarget->CastSpell((Unit*)nullptr, aurEff->GetSpellEffectInfo()->TriggerSpell, true, nullptr, aurEff);
+            }
+
+            void Register() override
+            {
+                OnEffectProc += AuraEffectProcFn(spell_putricide_ooze_tank_protection_AuraScript::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+                OnEffectProc += AuraEffectProcFn(spell_putricide_ooze_tank_protection_AuraScript::HandleProc, EFFECT_1, SPELL_AURA_PROC_TRIGGER_SPELL);
+            }
+        };
+
+        AuraScript* GetAuraScript() const override
+        {
+            return new spell_putricide_ooze_tank_protection_AuraScript();
+        }
+};
+
 class spell_putricide_choking_gas_bomb : public SpellScriptLoader
 {
     public:
@@ -1122,11 +1182,7 @@ class spell_putricide_unbound_plague : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spell*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_UNBOUND_PLAGUE))
-                    return false;
-                if (!sSpellMgr->GetSpellInfo(SPELL_UNBOUND_PLAGUE_SEARCHER))
-                    return false;
-                return true;
+                return ValidateSpellInfo({ SPELL_UNBOUND_PLAGUE, SPELL_UNBOUND_PLAGUE_SEARCHER });
             }
 
             void FilterTargets(std::list<WorldObject*>& targets)
@@ -1140,9 +1196,8 @@ class spell_putricide_unbound_plague : public SpellScriptLoader
                     }
                 }
 
-
                 targets.remove_if(Trinity::UnitAuraCheck(true, SPELL_UNBOUND_PLAGUE));
-                Trinity::Containers::RandomResizeList(targets, 1);
+                Trinity::Containers::RandomResize(targets, 1);
             }
 
             void HandleScript(SpellEffIndex /*effIndex*/)
@@ -1261,7 +1316,7 @@ class spell_putricide_mutated_plague : public SpellScriptLoader
 
                 int32 damage = spell->GetEffect(EFFECT_0)->CalcValue(caster);
                 float multiplier = 2.0f;
-                if (GetTarget()->GetMap()->GetSpawnMode() & 1)
+                if (GetTarget()->GetMap()->Is25ManRaid())
                     multiplier = 3.0f;
 
                 damage *= int32(pow(multiplier, GetStackAmount()));
@@ -1361,7 +1416,7 @@ class spell_putricide_mutation_init : public SpellScriptLoader
             void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
             {
                 uint32 spellId = 70311;
-                if (GetTarget()->GetMap()->GetSpawnMode() & 1)
+                if (GetTarget()->GetMap()->Is25ManRaid())
                     spellId = 71503;
 
                 GetTarget()->CastSpell(GetTarget(), spellId, true);
@@ -1597,6 +1652,7 @@ void AddSC_boss_professor_putricide()
     new spell_putricide_slime_puddle_aura();
     new spell_putricide_unstable_experiment();
     new spell_putricide_ooze_eruption_searcher();
+    new spell_putricide_ooze_tank_protection();
     new spell_putricide_choking_gas_bomb();
     new spell_putricide_unbound_plague();
     new spell_putricide_eat_ooze();

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,11 +16,13 @@
  */
 
 #include "ScriptMgr.h"
+#include "GameObject.h"
+#include "InstanceScript.h"
+#include "nexus.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
 #include "ScriptedCreature.h"
 #include "SpellScript.h"
-#include "SpellAuraEffects.h"
-#include "Player.h"
-#include "nexus.h"
 
 enum Spells
 {
@@ -82,7 +84,7 @@ class boss_keristrasza : public CreatureScript
                 Initialize();
                 _intenseColdList.clear();
 
-                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED);
+                me->RemoveUnitFlag(UNIT_FLAG_STUNNED);
 
                 RemovePrison(CheckContainmentSpheres());
                 _Reset();
@@ -128,15 +130,15 @@ class boss_keristrasza : public CreatureScript
             {
                 if (remove)
                 {
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC);
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    me->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
+                    me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     if (me->HasAura(SPELL_FROZEN_PRISON))
                         me->RemoveAurasDueToSpell(SPELL_FROZEN_PRISON);
                 }
                 else
                 {
-                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC);
-                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    me->AddUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
+                    me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     DoCast(me, SPELL_FROZEN_PRISON, false);
                 }
             }
@@ -209,7 +211,7 @@ class boss_keristrasza : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<boss_keristraszaAI>(creature);
+            return GetNexusAI<boss_keristraszaAI>(creature);
         }
 };
 
@@ -226,7 +228,7 @@ public:
         if (pKeristrasza && pKeristrasza->IsAlive())
         {
             // maybe these are hacks :(
-            go->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+            go->AddFlag(GO_FLAG_NOT_SELECTABLE);
             go->SetGoState(GO_STATE_ACTIVE);
 
             ENSURE_AI(boss_keristrasza::boss_keristraszaAI, pKeristrasza->AI())->CheckContainmentSpheres(true);
@@ -245,9 +247,9 @@ class spell_intense_cold : public SpellScriptLoader
         {
             PrepareAuraScript(spell_intense_cold_AuraScript);
 
-            void HandlePeriodicTick(AuraEffect const* aurEff)
+            void HandlePeriodicTick(AuraEffect const* /*aurEff*/)
             {
-                if (aurEff->GetBase()->GetStackAmount() < 2)
+                if (GetStackAmount() < 2)
                     return;
                 Unit* caster = GetCaster();
                 /// @todo the caster should be boss but not the player
@@ -280,7 +282,7 @@ class achievement_intense_cold : public AchievementCriteriaScript
             if (!target)
                 return false;
 
-            GuidList const& _intenseColdList = ENSURE_AI(boss_keristrasza::boss_keristraszaAI, target->ToCreature()->AI())->_intenseColdList;
+            GuidList const& _intenseColdList = ENSURE_AI(boss_keristrasza::boss_keristraszaAI, target->GetAI())->_intenseColdList;
             if (!_intenseColdList.empty())
                 for (GuidList::const_iterator itr = _intenseColdList.begin(); itr != _intenseColdList.end(); ++itr)
                     if (player->GetGUID() == *itr)

@@ -1,5 +1,5 @@
  /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -30,11 +30,13 @@ npc_taretha
 EndContentData */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "ScriptedGossip.h"
-#include "ScriptedEscortAI.h"
+#include "InstanceScript.h"
+#include "Map.h"
+#include "ObjectAccessor.h"
 #include "old_hillsbrad.h"
 #include "Player.h"
+#include "ScriptedEscortAI.h"
+#include "ScriptedGossip.h"
 
 enum Erozion
 {
@@ -187,7 +189,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_thrall_old_hillsbradAI>(creature);
+        return GetOldHillsbradAI<npc_thrall_old_hillsbradAI>(creature);
     }
 
     bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
@@ -245,7 +247,7 @@ public:
         if (creature->IsQuestGiver())
         {
             player->PrepareQuestMenu(creature->GetGUID());
-            player->SendPreparedQuest(creature->GetGUID());
+            player->SendPreparedQuest(creature);
         }
 
         InstanceScript* instance = creature->GetInstanceScript();
@@ -340,7 +342,7 @@ public:
                     break;
                 case 30:
                     SetEscortPaused(true);
-                    me->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                    me->AddNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                     SetRun(false);
                     break;
                 case 31:
@@ -364,7 +366,7 @@ public:
                     me->HandleEmoteCommand(EMOTE_ONESHOT_EXCLAMATION);
                     //make horsie run off
                     SetEscortPaused(true);
-                    me->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                    me->AddNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                     instance->SetData(TYPE_THRALL_PART2, DONE);
                     SetRun();
                     break;
@@ -473,7 +475,7 @@ public:
         }
         void StartWP()
         {
-            me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+            me->RemoveNpcFlag(UNIT_NPC_FLAG_GOSSIP);
             SetEscortPaused(false);
         }
         void DoMount()
@@ -565,7 +567,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_tarethaAI>(creature);
+        return GetOldHillsbradAI<npc_tarethaAI>(creature);
     }
 
     bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override

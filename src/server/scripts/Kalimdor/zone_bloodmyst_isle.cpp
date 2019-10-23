@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -27,14 +27,15 @@ EndScriptData */
 npc_webbed_creature
 EndContentData */
 
-#include "Player.h"
-#include "Group.h"
-#include "GridNotifiersImpl.h"
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "ScriptedEscortAI.h"
-#include "PassiveAI.h"
 #include "CellImpl.h"
+#include "GridNotifiersImpl.h"
+#include "Group.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "PassiveAI.h"
+#include "Player.h"
+#include "ScriptedEscortAI.h"
 
 /*######
 ## npc_webbed_creature
@@ -247,7 +248,7 @@ public:
         void Reset() override
         {
             _events.Reset();
-            me->SetDisplayId(me->GetCreatureTemplate()->Modelid2);
+            me->SetDisplayFromModel(1);
         }
 
         void EnterCombat(Unit* /*who*/) override
@@ -499,7 +500,7 @@ public:
                             _explosivesGuids.clear();
                             for (uint8 i = 0; i != MAX_EXPLOSIVES; ++i)
                             {
-                                if (GameObject* explosive = me->SummonGameObject(GO_DRAENEI_EXPLOSIVES_1, ExplosivesPos[0][i], G3D::Quat(), 0))
+                                if (GameObject* explosive = me->SummonGameObject(GO_DRAENEI_EXPLOSIVES_1, ExplosivesPos[0][i], QuaternionData::fromEulerAnglesZYX(ExplosivesPos[0][i].GetOrientation(), 0.0f, 0.0f), 0))
                                     _explosivesGuids.push_back(explosive->GetGUID());
                             }
                             me->HandleEmoteCommand(EMOTE_ONESHOT_NONE); // reset anim state
@@ -595,7 +596,7 @@ public:
                             _explosivesGuids.clear();
                             for (uint8 i = 0; i != MAX_EXPLOSIVES; ++i)
                             {
-                                if (GameObject* explosive = me->SummonGameObject(GO_DRAENEI_EXPLOSIVES_2, ExplosivesPos[1][i], G3D::Quat(), 0))
+                                if (GameObject* explosive = me->SummonGameObject(GO_DRAENEI_EXPLOSIVES_2, ExplosivesPos[1][i], QuaternionData::fromEulerAnglesZYX(ExplosivesPos[1][i].GetOrientation(), 0.0f, 0.0f), 0))
                                     _explosivesGuids.push_back(explosive->GetGUID());
                             }
                             Talk(SAY_LEGOSO_15);
@@ -630,7 +631,7 @@ public:
                             _explosivesGuids.clear();
                             if (Creature* sironas = me->FindNearestCreature(NPC_SIRONAS, SIZE_OF_GRIDS))
                             {
-                                sironas->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
+                                sironas->RemoveUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
                                 me->SetFacingToObject(sironas);
                             }
                             _moveTimer = 1 * IN_MILLISECONDS;
@@ -743,7 +744,7 @@ public:
                     Creature* sironas = NULL;
                     Trinity::AllCreaturesOfEntryInRange check(me, NPC_SIRONAS, SIZE_OF_GRIDS);
                     Trinity::CreatureSearcher<Trinity::AllCreaturesOfEntryInRange> searcher(me, sironas, check);
-                    me->VisitNearbyObject(SIZE_OF_GRIDS, searcher);
+                    Cell::VisitAllObjects(me, searcher, SIZE_OF_GRIDS);
 
                     if (sironas)
                     {

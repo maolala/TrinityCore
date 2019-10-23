@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -16,27 +16,28 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Common.h"
-#include "WorldPacket.h"
 #include "WorldSession.h"
-#include "ObjectMgr.h"
-#include "SpellMgr.h"
-#include "Log.h"
-#include "Opcodes.h"
-#include "Spell.h"
-#include "ObjectAccessor.h"
+#include "Common.h"
 #include "CreatureAI.h"
-#include "Util.h"
+#include "DatabaseEnv.h"
+#include "Group.h"
+#include "Log.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "ObjectMgr.h"
+#include "Opcodes.h"
 #include "Pet.h"
 #include "PetPackets.h"
-#include "World.h"
-#include "Group.h"
+#include "Player.h"
+#include "QueryPackets.h"
+#include "Spell.h"
 #include "SpellHistory.h"
 #include "SpellInfo.h"
-#include "Player.h"
-#include "PetPackets.h"
+#include "SpellMgr.h"
 #include "SpellPackets.h"
-#include "QueryPackets.h"
+#include "Util.h"
+#include "World.h"
+#include "WorldPacket.h"
 
 void WorldSession::HandleDismissCritter(WorldPackets::Pet::DismissCritter& packet)
 {
@@ -98,7 +99,7 @@ void WorldSession::HandlePetAction(WorldPackets::Pet::PetAction& packet)
         return;
 
     if (GetPlayer()->m_Controlled.size() == 1)
-        HandlePetActionHelper(pet, guid1, spellid, flag, guid2, packet.ActionPosition.x, packet.ActionPosition.y, packet.ActionPosition.z);
+        HandlePetActionHelper(pet, guid1, spellid, flag, guid2, packet.ActionPosition);
     else
     {
         //If a pet is dismissed, m_Controlled will change
@@ -107,7 +108,7 @@ void WorldSession::HandlePetAction(WorldPackets::Pet::PetAction& packet)
             if ((*itr)->GetEntry() == pet->GetEntry() && (*itr)->IsAlive())
                 controlled.push_back(*itr);
         for (std::vector<Unit*>::iterator itr = controlled.begin(); itr != controlled.end(); ++itr)
-            HandlePetActionHelper(*itr, guid1, spellid, flag, guid2, packet.ActionPosition.x, packet.ActionPosition.y, packet.ActionPosition.z);
+            HandlePetActionHelper(*itr, guid1, spellid, flag, guid2, packet.ActionPosition);
     }
 }
 
@@ -132,9 +133,10 @@ void WorldSession::HandlePetStopAttack(WorldPackets::Pet::PetStopAttack& packet)
         return;
 
     pet->AttackStop();
+    pet->ClearInPetCombat();
 }
 
-void WorldSession::HandlePetActionHelper(Unit* pet, ObjectGuid guid1, uint32 spellid, uint16 flag, ObjectGuid guid2, float x, float y, float z)
+void WorldSession::HandlePetActionHelper(Unit* pet, ObjectGuid guid1, uint32 spellid, uint16 flag, ObjectGuid guid2, Position const& pos)
 {
     CharmInfo* charmInfo = pet->GetCharmInfo();
     if (!charmInfo)
@@ -165,6 +167,7 @@ void WorldSession::HandlePetActionHelper(Unit* pet, ObjectGuid guid1, uint32 spe
                 case COMMAND_FOLLOW:                        //spellid=1792  //FOLLOW
                     pet->AttackStop();
                     pet->InterruptNonMeleeSpells(false);
+                    pet->ClearInPetCombat();
                     pet->GetMotionMaster()->MoveFollow(_player, PET_FOLLOW_DIST, pet->GetFollowAngle());
                     charmInfo->SetCommandState(COMMAND_FOLLOW);
 
@@ -221,9 +224,6 @@ void WorldSession::HandlePetActionHelper(Unit* pet, ObjectGuid guid1, uint32 spe
                         }
                         else                                // charmed player
                         {
-                            if (pet->GetVictim() && pet->GetVictim() != TargetUnit)
-                                pet->AttackStop();
-
                             charmInfo->SetIsCommandAttack(true);
                             charmInfo->SetIsAtStay(false);
                             charmInfo->SetIsFollowing(false);
@@ -259,7 +259,7 @@ void WorldSession::HandlePetActionHelper(Unit* pet, ObjectGuid guid1, uint32 spe
                 case COMMAND_MOVE_TO:
                     pet->StopMoving();
                     pet->GetMotionMaster()->Clear(false);
-                    pet->GetMotionMaster()->MovePoint(0, x, y, z);
+                    pet->GetMotionMaster()->MovePoint(0, pos);
                     charmInfo->SetCommandState(COMMAND_MOVE_TO);
 
                     charmInfo->SetIsCommandAttack(false);
@@ -277,6 +277,7 @@ void WorldSession::HandlePetActionHelper(Unit* pet, ObjectGuid guid1, uint32 spe
             {
                 case REACT_PASSIVE:                         //passive
                     pet->AttackStop();
+                    pet->ClearInPetCombat();
                     // no break;
                 case REACT_DEFENSIVE:                       //recovery
                 case REACT_AGGRESSIVE:                      //activete
@@ -367,8 +368,6 @@ void WorldSession::HandlePetActionHelper(Unit* pet, ObjectGuid guid1, uint32 spe
                     // This is true if pet has no target or has target but targets differs.
                     if (pet->GetVictim() != unit_target)
                     {
-                        if (pet->GetVictim())
-                            pet->AttackStop();
                         pet->GetMotionMaster()->Clear();
                         if (pet->ToCreature()->IsAIEnabled)
                             pet->ToCreature()->AI()->AttackStart(unit_target);
@@ -415,7 +414,7 @@ void WorldSession::SendQueryPetNameResponse(ObjectGuid guid)
     if (Creature* unit = ObjectAccessor::GetCreatureOrPetOrVehicle(*_player, guid))
     {
         response.Allow = true;
-        response.Timestamp = unit->GetUInt32Value(UNIT_FIELD_PET_NAME_TIMESTAMP);
+        response.Timestamp = unit->m_unitData->PetNameTimestamp;
         response.Name = unit->GetName();
 
         if (Pet* pet = unit->ToPet())
@@ -445,7 +444,7 @@ bool WorldSession::CheckStableMaster(ObjectGuid guid)
     // stable master case
     else
     {
-        if (!GetPlayer()->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_STABLEMASTER))
+        if (!GetPlayer()->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_STABLEMASTER, UNIT_NPC_FLAG_2_NONE))
         {
             TC_LOG_DEBUG("entities.player", "Stablemaster %s not found or you can't interact with him.", guid.ToString().c_str());
             return false;
@@ -522,7 +521,7 @@ void WorldSession::HandlePetRename(WorldPackets::Pet::PetRename& packet)
     Pet* pet = ObjectAccessor::GetPet(*_player, petguid);
                                                             // check it!
     if (!pet || !pet->IsPet() || ((Pet*)pet)->getPetType() != HUNTER_PET ||
-        !pet->HasByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PET_FLAGS, UNIT_CAN_BE_RENAMED) ||
+        !pet->HasPetFlag(UNIT_PET_FLAG_CAN_BE_RENAMED) ||
         pet->GetOwnerGUID() != _player->GetGUID() || !pet->GetCharmInfo())
         return;
 
@@ -543,7 +542,7 @@ void WorldSession::HandlePetRename(WorldPackets::Pet::PetRename& packet)
 
     pet->SetGroupUpdateFlag(GROUP_UPDATE_FLAG_PET_NAME);
 
-    pet->RemoveByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PET_FLAGS, UNIT_CAN_BE_RENAMED);
+    pet->RemovePetFlag(UNIT_PET_FLAG_CAN_BE_RENAMED);
 
     if (declinedname)
     {
@@ -558,10 +557,10 @@ void WorldSession::HandlePetRename(WorldPackets::Pet::PetRename& packet)
         }
     }
 
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     if (declinedname)
     {
-        PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_PET_DECLINEDNAME);
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_PET_DECLINEDNAME);
         stmt->setUInt32(0, pet->GetCharmInfo()->GetPetNumber());
         trans->Append(stmt);
 
@@ -575,7 +574,7 @@ void WorldSession::HandlePetRename(WorldPackets::Pet::PetRename& packet)
         trans->Append(stmt);
     }
 
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_PET_NAME);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_PET_NAME);
     stmt->setString(0, name);
     stmt->setUInt64(1, _player->GetGUID().GetCounter());
     stmt->setUInt32(2, pet->GetCharmInfo()->GetPetNumber());
@@ -583,7 +582,7 @@ void WorldSession::HandlePetRename(WorldPackets::Pet::PetRename& packet)
 
     CharacterDatabase.CommitTransaction(trans);
 
-    pet->SetUInt32Value(UNIT_FIELD_PET_NAME_TIMESTAMP, uint32(time(NULL))); // cast can't be helped
+    pet->SetPetNameTimestamp(uint32(time(NULL)));
 }
 
 void WorldSession::HandlePetAbandon(WorldPackets::Pet::PetAbandon& packet)
@@ -591,13 +590,11 @@ void WorldSession::HandlePetAbandon(WorldPackets::Pet::PetAbandon& packet)
     if (!_player->IsInWorld())
         return;
 
+    // pet/charmed
     Creature* pet = ObjectAccessor::GetCreatureOrPetOrVehicle(*_player, packet.Pet);
-    if (pet)
+    if (pet && pet->ToPet() && pet->ToPet()->getPetType() == HUNTER_PET)
     {
-        if (pet->IsPet())
-            _player->RemovePet(pet->ToPet(), PET_SAVE_AS_DELETED);
-        else if (pet->GetGUID() == _player->GetCharmGUID())
-            _player->StopCastingCharm();
+        _player->RemovePet((Pet*)pet, PET_SAVE_AS_DELETED);
     }
 }
 

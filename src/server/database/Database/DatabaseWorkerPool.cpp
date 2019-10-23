@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,11 +16,39 @@
  */
 
 #include "DatabaseWorkerPool.h"
-#include "DatabaseEnv.h"
+#include "AdhocStatement.h"
+#include "Common.h"
+#include "Errors.h"
+#include "Implementation/LoginDatabase.h"
+#include "Implementation/WorldDatabase.h"
+#include "Implementation/CharacterDatabase.h"
+#include "Implementation/HotfixDatabase.h"
+#include "Log.h"
+#include "PreparedStatement.h"
+#include "ProducerConsumerQueue.h"
 #include "QueryCallback.h"
+#include "QueryHolder.h"
+#include "QueryResult.h"
+#include "SQLOperation.h"
+#include "Transaction.h"
+#ifdef _WIN32 // hack for broken mysql.h not including the correct winsock header for SOCKET definition, fixed in 5.7
+#include <winsock2.h>
+#endif
+#include <mysql.h>
+#include <mysqld_error.h>
 
 #define MIN_MYSQL_SERVER_VERSION 50100u
 #define MIN_MYSQL_CLIENT_VERSION 50100u
+
+class PingOperation : public SQLOperation
+{
+    //! Operation for idle delaythreads
+    bool Execute() override
+    {
+        m_conn->Ping();
+        return true;
+    }
+};
 
 template <class T>
 DatabaseWorkerPool<T>::DatabaseWorkerPool()
@@ -31,6 +59,12 @@ DatabaseWorkerPool<T>::DatabaseWorkerPool()
     WPFatal(mysql_get_client_version() >= MIN_MYSQL_CLIENT_VERSION, "TrinityCore does not support MySQL versions below 5.1");
     WPFatal(mysql_get_client_version() == MYSQL_VERSION_ID, "Used MySQL library version (%s) does not match the version used to compile TrinityCore (%s). Search on forum for TCE00011.",
         mysql_get_client_info(), MYSQL_SERVER_VERSION);
+}
+
+template <class T>
+DatabaseWorkerPool<T>::~DatabaseWorkerPool()
+{
+    _queue->Cancel();
 }
 
 template <class T>
@@ -94,6 +128,7 @@ template <class T>
 bool DatabaseWorkerPool<T>::PrepareStatements()
 {
     for (auto& connections : _connections)
+    {
         for (auto& connection : connections)
         {
             connection->LockIfReady();
@@ -105,7 +140,30 @@ bool DatabaseWorkerPool<T>::PrepareStatements()
             }
             else
                 connection->Unlock();
+
+            size_t const preparedSize = connection->m_stmts.size();
+            if (_preparedStatementSize.size() < preparedSize)
+                _preparedStatementSize.resize(preparedSize);
+
+            for (size_t i = 0; i < preparedSize; ++i)
+            {
+                // already set by another connection
+                // (each connection only has prepared statements of it's own type sync/async)
+                if (_preparedStatementSize[i] > 0)
+                    continue;
+
+                if (MySQLPreparedStatement * stmt = connection->m_stmts[i].get())
+                {
+                    uint32 const paramCount = stmt->GetParameterCount();
+
+                    // TC only supports uint8 indices.
+                    ASSERT(paramCount < std::numeric_limits<uint8>::max());
+
+                    _preparedStatementSize[i] = static_cast<uint8>(paramCount);
+                }
+            }
         }
+    }
 
     return true;
 }
@@ -128,7 +186,7 @@ QueryResult DatabaseWorkerPool<T>::Query(const char* sql, T* connection /*= null
 }
 
 template <class T>
-PreparedQueryResult DatabaseWorkerPool<T>::Query(PreparedStatement* stmt)
+PreparedQueryResult DatabaseWorkerPool<T>::Query(PreparedStatement<T>* stmt)
 {
     auto connection = GetFreeConnection();
     PreparedResultSet* ret = connection->Query(stmt);
@@ -157,7 +215,7 @@ QueryCallback DatabaseWorkerPool<T>::AsyncQuery(const char* sql)
 }
 
 template <class T>
-QueryCallback DatabaseWorkerPool<T>::AsyncQuery(PreparedStatement* stmt)
+QueryCallback DatabaseWorkerPool<T>::AsyncQuery(PreparedStatement<T>* stmt)
 {
     PreparedStatementTask* task = new PreparedStatementTask(stmt, true);
     // Store future result before enqueueing - task might get already processed and deleted before returning from this method
@@ -167,7 +225,7 @@ QueryCallback DatabaseWorkerPool<T>::AsyncQuery(PreparedStatement* stmt)
 }
 
 template <class T>
-QueryResultHolderFuture DatabaseWorkerPool<T>::DelayQueryHolder(SQLQueryHolder* holder)
+QueryResultHolderFuture DatabaseWorkerPool<T>::DelayQueryHolder(SQLQueryHolder<T>* holder)
 {
     SQLQueryHolderTask* task = new SQLQueryHolderTask(holder);
     // Store future result before enqueueing - task might get already processed and deleted before returning from this method
@@ -177,7 +235,13 @@ QueryResultHolderFuture DatabaseWorkerPool<T>::DelayQueryHolder(SQLQueryHolder* 
 }
 
 template <class T>
-void DatabaseWorkerPool<T>::CommitTransaction(SQLTransaction transaction)
+SQLTransaction<T> DatabaseWorkerPool<T>::BeginTransaction()
+{
+    return std::make_shared<Transaction<T>>();
+}
+
+template <class T>
+void DatabaseWorkerPool<T>::CommitTransaction(SQLTransaction<T> transaction)
 {
 #ifdef TRINITY_DEBUG
     //! Only analyze transaction weaknesses in Debug mode.
@@ -200,7 +264,7 @@ void DatabaseWorkerPool<T>::CommitTransaction(SQLTransaction transaction)
 }
 
 template <class T>
-void DatabaseWorkerPool<T>::DirectCommitTransaction(SQLTransaction& transaction)
+void DatabaseWorkerPool<T>::DirectCommitTransaction(SQLTransaction<T>& transaction)
 {
     T* connection = GetFreeConnection();
     int errorCode = connection->ExecuteTransaction(transaction);
@@ -226,6 +290,12 @@ void DatabaseWorkerPool<T>::DirectCommitTransaction(SQLTransaction& transaction)
     transaction->Cleanup();
 
     connection->Unlock();
+}
+
+template <class T>
+PreparedStatement<T>* DatabaseWorkerPool<T>::GetPreparedStatement(PreparedStatementIndex index)
+{
+    return new PreparedStatement<T>(index, _preparedStatementSize[index]);
 }
 
 template <class T>
@@ -301,6 +371,22 @@ uint32 DatabaseWorkerPool<T>::OpenConnections(InternalIndex type, uint8 numConne
 }
 
 template <class T>
+unsigned long DatabaseWorkerPool<T>::EscapeString(char *to, const char *from, unsigned long length)
+{
+    if (!to || !from || !length)
+        return 0;
+
+    return mysql_real_escape_string(
+        _connections[IDX_SYNCH].front()->GetHandle(), to, from, length);
+}
+
+template <class T>
+void DatabaseWorkerPool<T>::Enqueue(SQLOperation* op)
+{
+    _queue->Push(op);
+}
+
+template <class T>
 T* DatabaseWorkerPool<T>::GetFreeConnection()
 {
     uint8 i = 0;
@@ -316,6 +402,69 @@ T* DatabaseWorkerPool<T>::GetFreeConnection()
     }
 
     return connection;
+}
+
+template <class T>
+char const* DatabaseWorkerPool<T>::GetDatabaseName() const
+{
+    return _connectionInfo->database.c_str();
+}
+
+template <class T>
+void DatabaseWorkerPool<T>::Execute(const char* sql)
+{
+    if (Trinity::IsFormatEmptyOrNull(sql))
+        return;
+
+    BasicStatementTask* task = new BasicStatementTask(sql);
+    Enqueue(task);
+}
+
+template <class T>
+void DatabaseWorkerPool<T>::Execute(PreparedStatement<T>* stmt)
+{
+    PreparedStatementTask* task = new PreparedStatementTask(stmt);
+    Enqueue(task);
+}
+
+template <class T>
+void DatabaseWorkerPool<T>::DirectExecute(const char* sql)
+{
+    if (Trinity::IsFormatEmptyOrNull(sql))
+        return;
+
+    T* connection = GetFreeConnection();
+    connection->Execute(sql);
+    connection->Unlock();
+}
+
+template <class T>
+void DatabaseWorkerPool<T>::DirectExecute(PreparedStatement<T>* stmt)
+{
+    T* connection = GetFreeConnection();
+    connection->Execute(stmt);
+    connection->Unlock();
+
+    //! Delete proxy-class. Not needed anymore
+    delete stmt;
+}
+
+template <class T>
+void DatabaseWorkerPool<T>::ExecuteOrAppend(SQLTransaction<T>& trans, const char* sql)
+{
+    if (!trans)
+        Execute(sql);
+    else
+        trans->Append(sql);
+}
+
+template <class T>
+void DatabaseWorkerPool<T>::ExecuteOrAppend(SQLTransaction<T>& trans, PreparedStatement<T>* stmt)
+{
+    if (!trans)
+        Execute(stmt);
+    else
+        trans->Append(stmt);
 }
 
 template class TC_DATABASE_API DatabaseWorkerPool<LoginDatabaseConnection>;

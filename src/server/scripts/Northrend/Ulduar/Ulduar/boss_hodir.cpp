@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,13 +16,16 @@
  */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "SpellScript.h"
-#include "SpellAuraEffects.h"
-#include "Cell.h"
 #include "CellImpl.h"
-#include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "ScriptedCreature.h"
+#include "SpellAuras.h"
+#include "SpellInfo.h"
+#include "SpellScript.h"
+#include "TemporarySummon.h"
 #include "ulduar.h"
 
 /* @todo Achievements
@@ -185,8 +188,8 @@ class npc_flash_freeze : public CreatureScript
             {
                 Initialize();
                 instance = me->GetInstanceScript();
-                me->SetDisplayId(me->GetCreatureTemplate()->Modelid2);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED | UNIT_FLAG_PACIFIED);
+                me->SetDisplayFromModel(1);
+                me->AddUnitFlag(UnitFlags(UNIT_FLAG_STUNNED | UNIT_FLAG_PACIFIED));
                 me->SetControlled(true, UNIT_STATE_ROOT);
             }
 
@@ -247,7 +250,7 @@ class npc_flash_freeze : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_flash_freezeAI>(creature);
+            return GetUlduarAI<npc_flash_freezeAI>(creature);
         }
 };
 
@@ -261,8 +264,8 @@ class npc_ice_block : public CreatureScript
             npc_ice_blockAI(Creature* creature) : ScriptedAI(creature)
             {
                 instance = me->GetInstanceScript();
-                me->SetDisplayId(me->GetCreatureTemplate()->Modelid2);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED | UNIT_FLAG_PACIFIED);
+                me->SetDisplayFromModel(1);
+                me->AddUnitFlag(UnitFlags(UNIT_FLAG_STUNNED | UNIT_FLAG_PACIFIED));
                 me->SetControlled(true, UNIT_STATE_ROOT);
             }
 
@@ -273,7 +276,7 @@ class npc_ice_block : public CreatureScript
             void IsSummonedBy(Unit* summoner) override
             {
                 targetGUID = summoner->GetGUID();
-                summoner->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED | UNIT_FLAG_PACIFIED);
+                summoner->AddUnitFlag(UnitFlags(UNIT_FLAG_STUNNED | UNIT_FLAG_PACIFIED));
                 summoner->SetControlled(true, UNIT_STATE_ROOT);
                 me->SetInCombatWith(summoner);
                 me->AddThreat(summoner, 250.0f);
@@ -290,7 +293,7 @@ class npc_ice_block : public CreatureScript
             {
                 if (Creature* Helper = ObjectAccessor::GetCreature(*me, targetGUID))
                 {
-                    Helper->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED | UNIT_FLAG_PACIFIED);
+                    Helper->RemoveUnitFlag(UnitFlags(UNIT_FLAG_STUNNED | UNIT_FLAG_PACIFIED));
                     Helper->SetControlled(false, UNIT_STATE_ROOT);
 
                     if (Creature* Hodir = ObjectAccessor::GetCreature(*me, instance->GetGuidData(BOSS_HODIR)))
@@ -310,7 +313,7 @@ class npc_ice_block : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_ice_blockAI>(creature);
+            return GetUlduarAI<npc_ice_blockAI>(creature);
         }
 };
 
@@ -394,7 +397,7 @@ class boss_hodir : public CreatureScript
                     me->RemoveAllAttackers();
                     me->AttackStop();
                     me->SetReactState(REACT_PASSIVE);
-                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     me->SetControlled(true, UNIT_STATE_ROOT);
                     me->InterruptNonMeleeSpells(true);
                     me->StopMoving();
@@ -520,7 +523,7 @@ class boss_hodir : public CreatureScript
                 std::list<Unit*> TargetList;
                 Trinity::AnyUnfriendlyUnitInObjectRangeCheck checker(me, me, 100.0f);
                 Trinity::UnitListSearcher<Trinity::AnyUnfriendlyUnitInObjectRangeCheck> searcher(me, TargetList, checker);
-                me->VisitNearbyObject(100.0f, searcher);
+                Cell::VisitAllObjects(me, searcher, 100.0f);
                 for (std::list<Unit*>::iterator itr = TargetList.begin(); itr != TargetList.end(); ++itr)
                 {
                     Unit* target = *itr;
@@ -554,8 +557,8 @@ class npc_icicle : public CreatureScript
             npc_icicleAI(Creature* creature) : ScriptedAI(creature)
             {
                 Initialize();
-                me->SetDisplayId(me->GetCreatureTemplate()->Modelid1);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_PACIFIED | UNIT_FLAG_NOT_SELECTABLE);
+                me->SetDisplayFromModel(0);
+                me->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_PACIFIED | UNIT_FLAG_NOT_SELECTABLE));
                 me->SetControlled(true, UNIT_STATE_ROOT);
                 me->SetReactState(REACT_PASSIVE);
             }
@@ -609,8 +612,8 @@ class npc_snowpacked_icicle : public CreatureScript
             npc_snowpacked_icicleAI(Creature* creature) : ScriptedAI(creature)
             {
                 Initialize();
-                me->SetDisplayId(me->GetCreatureTemplate()->Modelid2);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED);
+                me->SetDisplayFromModel(1);
+                me->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED));
                 me->SetControlled(true, UNIT_STATE_ROOT);
                 me->SetReactState(REACT_PASSIVE);
             }
@@ -667,7 +670,7 @@ class npc_hodir_priest : public CreatureScript
 
             void UpdateAI(uint32 diff) override
             {
-                if (!UpdateVictim() || me->HasUnitState(UNIT_STATE_STUNNED) || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED))
+                if (!UpdateVictim() || me->HasUnitState(UNIT_STATE_STUNNED) || me->HasUnitFlag(UNIT_FLAG_STUNNED))
                     return;
 
                 events.Update(diff);
@@ -694,7 +697,7 @@ class npc_hodir_priest : public CreatureScript
                             std::list<Unit*> TargetList;
                             Trinity::AnyFriendlyUnitInObjectRangeCheck checker(me, me, 30.0f);
                             Trinity::UnitListSearcher<Trinity::AnyFriendlyUnitInObjectRangeCheck> searcher(me, TargetList, checker);
-                            me->VisitNearbyObject(30.0f, searcher);
+                            Cell::VisitAllObjects(me, searcher, 30.0f);
                             for (std::list<Unit*>::iterator itr = TargetList.begin(); itr != TargetList.end(); ++itr)
                                 if ((*itr)->HasAura(SPELL_FREEZE))
                                     DoCast(*itr, SPELL_DISPEL_MAGIC, true);
@@ -749,7 +752,7 @@ class npc_hodir_shaman : public CreatureScript
 
             void UpdateAI(uint32 diff) override
             {
-                if (!UpdateVictim() || me->HasUnitState(UNIT_STATE_STUNNED) || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED))
+                if (!UpdateVictim() || me->HasUnitState(UNIT_STATE_STUNNED) || me->HasUnitFlag(UNIT_FLAG_STUNNED))
                     return;
 
                 events.Update(diff);
@@ -814,7 +817,7 @@ class npc_hodir_druid : public CreatureScript
 
             void UpdateAI(uint32 diff) override
             {
-                if (!UpdateVictim() || me->HasUnitState(UNIT_STATE_STUNNED) || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED))
+                if (!UpdateVictim() || me->HasUnitState(UNIT_STATE_STUNNED) || me->HasUnitFlag(UNIT_FLAG_STUNNED))
                     return;
 
                 events.Update(diff);
@@ -892,7 +895,7 @@ class npc_hodir_mage : public CreatureScript
 
             void UpdateAI(uint32 diff) override
             {
-                if (!UpdateVictim() || me->HasUnitState(UNIT_STATE_STUNNED) || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED))
+                if (!UpdateVictim() || me->HasUnitState(UNIT_STATE_STUNNED) || me->HasUnitFlag(UNIT_FLAG_STUNNED))
                     return;
 
                 events.Update(diff);
@@ -951,7 +954,7 @@ class npc_toasty_fire : public CreatureScript
         {
             npc_toasty_fireAI(Creature* creature) : ScriptedAI(creature)
             {
-                me->SetDisplayId(me->GetCreatureTemplate()->Modelid2);
+                me->SetDisplayFromModel(1);
             }
 
             void Reset() override

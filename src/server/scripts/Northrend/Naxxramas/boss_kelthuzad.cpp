@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,11 +16,17 @@
  */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "SpellScript.h"
-#include "SpellAuraEffects.h"
+#include "GameObject.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
 #include "naxxramas.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
 #include "PlayerAI.h"
+#include "ScriptedCreature.h"
+#include "SpellAuraEffects.h"
+#include "SpellScript.h"
+#include "TemporarySummon.h"
 
 enum Texts
 {
@@ -161,7 +167,7 @@ class KelThuzadCharmedPlayerAI : public SimpleCharmedPlayerAI
     public:
         KelThuzadCharmedPlayerAI(Player* player) : SimpleCharmedPlayerAI(player) { }
 
-        struct CharmedPlayerTargetSelectPred : public std::unary_function<Unit*, bool>
+        struct CharmedPlayerTargetSelectPred
         {
             bool operator()(Unit const* target) const
             {
@@ -194,7 +200,7 @@ struct ManaUserTargetSelector : public std::unary_function<Unit*, bool>
 {
     bool operator()(Unit const* target) const
     {
-        return target->GetTypeId() == TYPEID_PLAYER && target->getPowerType() == POWER_MANA;
+        return target->GetTypeId() == TYPEID_PLAYER && target->GetPowerType() == POWER_MANA;
     }
 };
 
@@ -218,7 +224,7 @@ public:
                     return;
                 _Reset();
                 me->SetReactState(REACT_PASSIVE);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE);
+                me->AddUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE));
                 _skeletonCount = 0;
                 _bansheeCount = 0;
                 _abominationCount = 0;
@@ -419,7 +425,7 @@ public:
                         case EVENT_PHASE_TWO:
                             me->CastStop();
                             events.SetPhase(PHASE_TWO);
-                            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_IMMUNE_TO_PC);
+                            me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_IMMUNE_TO_PC));
                             me->getThreatManager().resetAllAggro();
                             me->SetReactState(REACT_AGGRESSIVE);
                             Talk(EMOTE_PHASE_TWO);
@@ -516,7 +522,7 @@ public:
                     case ACTION_BEGIN_ENCOUNTER:
                         if (instance->GetBossState(BOSS_KELTHUZAD) != NOT_STARTED)
                             return;
-                        me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC);
+                        me->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
                         instance->SetBossState(BOSS_KELTHUZAD, IN_PROGRESS);
                         events.SetPhase(PHASE_ONE);
                         DoZoneInCombat();
@@ -568,7 +574,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_kelthuzadAI>(creature);
+        return GetNaxxramasAI<boss_kelthuzadAI>(creature);
     }
 };
 
@@ -699,7 +705,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_kelthuzad_skeletonAI>(creature);
+        return GetNaxxramasAI<npc_kelthuzad_skeletonAI>(creature);
     }
 };
 
@@ -725,7 +731,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_kelthuzad_bansheeAI>(creature);
+        return GetNaxxramasAI<npc_kelthuzad_bansheeAI>(creature);
     }
 };
 
@@ -768,7 +774,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_kelthuzad_abominationAI>(creature);
+        return GetNaxxramasAI<npc_kelthuzad_abominationAI>(creature);
     }
 };
 
@@ -800,7 +806,7 @@ public:
                         me->RemoveAllAuras();
                         me->CombatStop();
                         me->StopMoving();
-                        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC);
+                        me->AddUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
                         me->DespawnOrUnsummon(30 * IN_MILLISECONDS); // just in case anything interrupts the movement
                         me->GetMotionMaster()->MoveTargetedHome();
                     default:
@@ -862,7 +868,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_kelthuzad_guardianAI>(creature);
+        return GetNaxxramasAI<npc_kelthuzad_guardianAI>(creature);
     }
 };
 
@@ -915,9 +921,7 @@ public:
 
         bool Validate(SpellInfo const* /*spell*/) override
         {
-            if (!sSpellMgr->GetSpellInfo(SPELL_MANA_DETONATION_DAMAGE))
-                return false;
-            return true;
+            return ValidateSpellInfo({ SPELL_MANA_DETONATION_DAMAGE });
         }
 
         void HandleScript(AuraEffect const* aurEff)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -19,6 +19,7 @@
 #define _CRT_SECURE_NO_DEPRECATE
 
 #include "loadlib.h"
+#include <CascLib.h>
 
 u_map_fcc MverMagic = { { 'R','E','V','M' } };
 
@@ -40,14 +41,48 @@ bool ChunkedFile::loadFile(CASC::StorageHandle const& mpq, std::string const& fi
     if (!file)
         return false;
 
-    data_size = CASC::GetFileSize(file, nullptr);
+    int64 fileSize = CASC::GetFileSize(file);
+    if (fileSize == -1)
+        return false;
+
+    data_size = uint32(fileSize);
     data = new uint8[data_size];
-    CASC::ReadFile(file, data, data_size, nullptr/*bytesRead*/);
+    uint32 bytesRead = 0;
+    if (!CASC::ReadFile(file, data, data_size, &bytesRead) || bytesRead != data_size)
+        return false;
+
     parseChunks();
     if (prepareLoadedData())
         return true;
 
     printf("Error loading %s\n", fileName.c_str());
+    free();
+
+    return false;
+}
+
+bool ChunkedFile::loadFile(CASC::StorageHandle const& mpq, uint32 fileDataId, std::string const& description, bool log)
+{
+    free();
+    CASC::FileHandle file = CASC::OpenFile(mpq, fileDataId, CASC_LOCALE_ALL, log);
+    if (!file)
+        return false;
+
+    int64 fileSize = CASC::GetFileSize(file);
+    if (fileSize == -1)
+        return false;
+
+    data_size = fileSize;
+    data = new uint8[data_size];
+    uint32 bytesRead = 0;
+    if (!CASC::ReadFile(file, data, data_size, &bytesRead) || bytesRead != data_size)
+        return false;
+
+    parseChunks();
+    if (prepareLoadedData())
+        return true;
+
+    printf("Error loading %s\n", description.c_str());
     free();
 
     return false;
@@ -89,7 +124,9 @@ u_map_fcc InterestingChunks[] =
     { { 'T', 'V', 'C', 'M' } },
     { { 'O', 'M', 'W', 'M' } },
     { { 'Q', 'L', 'C', 'M' } },
-    { { 'O', 'B', 'F', 'M' } }
+    { { 'O', 'B', 'F', 'M' } },
+    { { 'D', 'H', 'P', 'M' } },
+    { { 'D', 'I', 'A', 'M' } }
 };
 
 bool IsInterestingChunk(u_map_fcc const& fcc)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -24,10 +24,13 @@ SDCategory: Magisters' Terrace
 EndScriptData */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
+#include "GameObject.h"
+#include "InstanceScript.h"
 #include "magisters_terrace.h"
-#include "WorldPacket.h"
-#include "Opcodes.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "ScriptedCreature.h"
+#include "TemporarySummon.h"
 
 enum Says
 {
@@ -96,7 +99,7 @@ public:
 
     CreatureAI* GetAI(Creature* c) const override
     {
-        return GetInstanceAI<boss_felblood_kaelthasAI>(c);
+        return GetMagistersTerraceAI<boss_felblood_kaelthasAI>(c);
     }
 
     struct boss_felblood_kaelthasAI : public ScriptedAI
@@ -167,7 +170,7 @@ public:
 
             // Enable the Translocation Orb Exit
             if (GameObject* escapeOrb = ObjectAccessor::GetGameObject(*me, instance->GetGuidData(DATA_ESCAPE_ORB)))
-                escapeOrb->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                escapeOrb->RemoveFlag(GO_FLAG_NOT_SELECTABLE);
         }
 
         void DamageTaken(Unit* /*done_by*/, uint32 &damage) override
@@ -251,11 +254,7 @@ public:
                 {
                     // Also needs an exception in spell system.
                     unit->CastSpell(unit, SPELL_GRAVITY_LAPSE_FLY, true, 0, 0, me->GetGUID());
-                    // Use packet hack
-                    WorldPacket data(SMSG_MOVE_SET_CAN_FLY, 12);
-                    data << unit->GetPackGUID();
-                    data << uint32(0);
-                    unit->SendMessageToSet(&data, true);
+                    unit->SetCanFly(true);
                 }
             }
         }
@@ -271,11 +270,7 @@ public:
                 {
                     unit->RemoveAurasDueToSpell(SPELL_GRAVITY_LAPSE_FLY);
                     unit->RemoveAurasDueToSpell(SPELL_GRAVITY_LAPSE_DOT);
-
-                    WorldPacket data(SMSG_MOVE_UNSET_CAN_FLY, 12);
-                    data << unit->GetPackGUID();
-                    data << uint32(0);
-                    unit->SendMessageToSet(&data, true);
+                    unit->SetCanFly(false);
                 }
             }
         }
@@ -320,7 +315,7 @@ public:
                         Creature* Phoenix = me->SummonCreature(CREATURE_PHOENIX, x, y, LOCATION_Z, 0, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 60000);
                         if (Phoenix)
                         {
-                            Phoenix->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE + UNIT_FLAG_NON_ATTACKABLE);
+                            Phoenix->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE));
                             SetThreatList(Phoenix);
                             Phoenix->AI()->AttackStart(target);
                         }
@@ -438,7 +433,7 @@ public:
 
     CreatureAI* GetAI(Creature* c) const override
     {
-        return new npc_felkael_flamestrikeAI(c);
+        return GetMagistersTerraceAI<npc_felkael_flamestrikeAI>(c);
     }
 
     struct npc_felkael_flamestrikeAI : public ScriptedAI
@@ -459,7 +454,7 @@ public:
         {
             Initialize();
 
-            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+            me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
             me->setFaction(14);
 
             DoCast(me, SPELL_FLAMESTRIKE2, true);
@@ -486,7 +481,7 @@ public:
 
     CreatureAI* GetAI(Creature* c) const override
     {
-        return GetInstanceAI<npc_felkael_phoenixAI>(c);
+        return GetMagistersTerraceAI<npc_felkael_phoenixAI>(c);
     }
 
     struct npc_felkael_phoenixAI : public ScriptedAI
@@ -513,7 +508,7 @@ public:
 
         void Reset() override
         {
-            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE + UNIT_FLAG_NON_ATTACKABLE);
+            me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE));
             me->SetDisableGravity(true);
             DoCast(me, SPELL_PHOENIX_BURN, true);
             Initialize();
@@ -545,7 +540,7 @@ public:
                 me->RemoveAllAurasOnDeath();
                 me->ModifyAuraState(AURA_STATE_HEALTHLESS_20_PERCENT, false);
                 me->ModifyAuraState(AURA_STATE_HEALTHLESS_35_PERCENT, false);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 me->ClearAllReactives();
                 me->SetTarget(ObjectGuid::Empty);
                 me->GetMotionMaster()->Clear();
@@ -604,7 +599,7 @@ public:
 
     CreatureAI* GetAI(Creature* c) const override
     {
-        return new npc_felkael_phoenix_eggAI(c);
+        return GetMagistersTerraceAI<npc_felkael_phoenix_eggAI>(c);
     }
 
     struct npc_felkael_phoenix_eggAI : public ScriptedAI
@@ -648,7 +643,7 @@ public:
 
     CreatureAI* GetAI(Creature* c) const override
     {
-        return new npc_arcane_sphereAI(c);
+        return GetMagistersTerraceAI<npc_arcane_sphereAI>(c);
     }
 
     struct npc_arcane_sphereAI : public ScriptedAI
@@ -663,7 +658,7 @@ public:
             DespawnTimer = 30000;
             ChangeTargetTimer = urand(6000, 12000);
 
-            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+            me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
             me->SetDisableGravity(true);
             me->setFaction(14);
             DoCast(me, SPELL_ARCANE_SPHERE_PASSIVE, true);

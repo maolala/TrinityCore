@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -16,20 +16,21 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Common.h"
-#include "WorldPacket.h"
 #include "WorldSession.h"
-#include "World.h"
-#include "ObjectAccessor.h"
-#include "Log.h"
-#include "Player.h"
-#include "Item.h"
-#include "Spell.h"
-#include "SocialMgr.h"
-#include "Language.h"
 #include "AccountMgr.h"
-#include "TradePackets.h"
+#include "Common.h"
+#include "DatabaseEnv.h"
+#include "Item.h"
+#include "Language.h"
+#include "Log.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
+#include "SocialMgr.h"
+#include "Spell.h"
+#include "SpellMgr.h"
 #include "TradeData.h"
+#include "TradePackets.h"
+#include "World.h"
 
 void WorldSession::SendTradeStatus(WorldPackets::Trade::TradeStatus& info)
 {
@@ -66,23 +67,23 @@ void WorldSession::SendUpdateTrade(bool trader_data /*= true*/)
             tradeItem.Slot = i;
             tradeItem.Item.Initialize(item);
             tradeItem.StackCount = item->GetCount();
-            tradeItem.GiftCreator = item->GetGuidValue(ITEM_FIELD_GIFTCREATOR);
-            if (!item->HasFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_WRAPPED))
+            tradeItem.GiftCreator = item->GetGiftCreator();
+            if (!item->HasItemFlag(ITEM_FIELD_FLAG_WRAPPED))
             {
                 tradeItem.Unwrapped = boost::in_place();
 
                 tradeItem.Unwrapped->EnchantID = item->GetEnchantmentId(PERM_ENCHANTMENT_SLOT);
                 tradeItem.Unwrapped->OnUseEnchantmentID = item->GetEnchantmentId(USE_ENCHANTMENT_SLOT);
-                tradeItem.Unwrapped->Creator = item->GetGuidValue(ITEM_FIELD_CREATOR);
+                tradeItem.Unwrapped->Creator = item->GetCreator();
                 tradeItem.Unwrapped->Charges = item->GetSpellCharges();
-                tradeItem.Unwrapped->Lock = item->GetTemplate()->GetLockID() && !item->HasFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_UNLOCKED);
-                tradeItem.Unwrapped->MaxDurability = item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY);
-                tradeItem.Unwrapped->Durability = item->GetUInt32Value(ITEM_FIELD_DURABILITY);
+                tradeItem.Unwrapped->Lock = item->GetTemplate()->GetLockID() && !item->HasItemFlag(ITEM_FIELD_FLAG_UNLOCKED);
+                tradeItem.Unwrapped->MaxDurability = item->m_itemData->MaxDurability;
+                tradeItem.Unwrapped->Durability = item->m_itemData->Durability;
 
                 uint8 g = 0;
-                for (ItemDynamicFieldGems const& gemData : item->GetGems())
+                for (UF::SocketedGem const& gemData : item->m_itemData->Gems)
                 {
-                    if (gemData.ItemId)
+                    if (gemData.ItemID)
                     {
                         WorldPackets::Item::ItemGemData gem;
                         gem.Slot = g;
@@ -133,8 +134,8 @@ void WorldSession::moveItems(Item* myItems[], Item* hisItems[])
                 }
 
                 // adjust time (depends on /played)
-                if (myItems[i]->HasFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_BOP_TRADEABLE))
-                    myItems[i]->SetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME, trader->GetTotalPlayedTime()-(_player->GetTotalPlayedTime()-myItems[i]->GetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME)));
+                if (myItems[i]->HasItemFlag(ITEM_FIELD_FLAG_BOP_TRADEABLE))
+                    myItems[i]->SetCreatePlayedTime(trader->GetTotalPlayedTime() - (_player->GetTotalPlayedTime() - myItems[i]->m_itemData->CreatePlayedTime));
                 // store
                 trader->MoveItemToInventory(traderDst, myItems[i], true, true);
             }
@@ -151,8 +152,8 @@ void WorldSession::moveItems(Item* myItems[], Item* hisItems[])
                 }
 
                 // adjust time (depends on /played)
-                if (hisItems[i]->HasFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_BOP_TRADEABLE))
-                    hisItems[i]->SetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME, _player->GetTotalPlayedTime()-(trader->GetTotalPlayedTime()-hisItems[i]->GetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME)));
+                if (hisItems[i]->HasItemFlag(ITEM_FIELD_FLAG_BOP_TRADEABLE))
+                    hisItems[i]->SetCreatePlayedTime(_player->GetTotalPlayedTime() - (trader->GetTotalPlayedTime() - hisItems[i]->m_itemData->CreatePlayedTime));
                 // store
                 _player->MoveItemToInventory(playerDst, hisItems[i], true, true);
             }
@@ -284,7 +285,7 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPackets::Trade::AcceptTrade& acc
         return;
     }
 
-    if (_player->GetMoney() >= uint64(MAX_MONEY_AMOUNT) - his_trade->GetMoney())
+    if (_player->GetMoney() > MAX_MONEY_AMOUNT - his_trade->GetMoney())
     {
         info.Status = TRADE_STATUS_FAILED;
         info.BagResult = EQUIP_ERR_TOO_MUCH_GOLD;
@@ -293,7 +294,7 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPackets::Trade::AcceptTrade& acc
         return;
     }
 
-    if (trader->GetMoney() >= uint64(MAX_MONEY_AMOUNT) - my_trade->GetMoney())
+    if (trader->GetMoney() > MAX_MONEY_AMOUNT - my_trade->GetMoney())
     {
         info.Status = TRADE_STATUS_FAILED;
         info.BagResult = EQUIP_ERR_TOO_MUCH_GOLD;
@@ -468,12 +469,12 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPackets::Trade::AcceptTrade& acc
         {
             if (myItems[i])
             {
-                myItems[i]->SetGuidValue(ITEM_FIELD_GIFTCREATOR, _player->GetGUID());
+                myItems[i]->SetGiftCreator(_player->GetGUID());
                 _player->MoveItemFromInventory(myItems[i]->GetBagSlot(), myItems[i]->GetSlot(), true);
             }
             if (hisItems[i])
             {
-                hisItems[i]->SetGuidValue(ITEM_FIELD_GIFTCREATOR, trader->GetGUID());
+                hisItems[i]->SetGiftCreator(trader->GetGUID());
                 trader->MoveItemFromInventory(hisItems[i]->GetBagSlot(), hisItems[i]->GetSlot(), true);
             }
         }
@@ -521,7 +522,7 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPackets::Trade::AcceptTrade& acc
         trader->m_trade = NULL;
 
         // desynchronized with the other saves here (SaveInventoryAndGoldToDB() not have own transaction guards)
-        SQLTransaction trans = CharacterDatabase.BeginTransaction();
+        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
         _player->SaveInventoryAndGoldToDB(trans);
         trader->SaveInventoryAndGoldToDB(trans);
         CharacterDatabase.CommitTransaction(trans);
@@ -666,8 +667,8 @@ void WorldSession::HandleInitiateTradeOpcode(WorldPackets::Trade::InitiateTrade&
     }
 
     if ((pOther->GetTeam() != _player->GetTeam() ||
-        pOther->HasFlag(PLAYER_FLAGS_EX, PLAYER_FLAGS_EX_MERCENARY_MODE) ||
-        _player->HasFlag(PLAYER_FLAGS_EX, PLAYER_FLAGS_EX_MERCENARY_MODE)) &&
+        pOther->HasPlayerFlagEx(PLAYER_FLAGS_EX_MERCENARY_MODE) ||
+        _player->HasPlayerFlagEx(PLAYER_FLAGS_EX_MERCENARY_MODE)) &&
         (!sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_TRADE) &&
         !HasPermission(rbac::RBAC_PERM_ALLOW_TWO_SIDE_TRADE)))
     {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,14 +15,20 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "ScriptMgr.h"
+#include "AreaBoundary.h"
+#include "GameObject.h"
 #include "InstanceScript.h"
-#include "Vehicle.h"
+#include "Item.h"
+#include "Map.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
-#include "ScriptMgr.h"
+#include "Spell.h"
 #include "SpellScript.h"
-#include "WorldPacket.h"
+#include "TemporarySummon.h"
 #include "ulduar.h"
+#include "Vehicle.h"
+#include "WorldStatePackets.h"
 
 static BossBoundaryData const boundaries =
 {
@@ -68,7 +74,7 @@ MinionData const minionData[] =
     { NPC_STEELBREAKER,   BOSS_ASSEMBLY_OF_IRON },
     { NPC_MOLGEIM,        BOSS_ASSEMBLY_OF_IRON },
     { NPC_BRUNDIR,        BOSS_ASSEMBLY_OF_IRON },
-    { 0,                  0,                    }
+    { 0,                  0                     } // END
 };
 
 ObjectData const creatureData[] =
@@ -195,7 +201,7 @@ class instance_ulduar : public InstanceMapScript
                     if (_algalonTimer && _algalonTimer <= 60)
                         algalon->AI()->DoAction(ACTION_INIT_ALGALON);
                     else
-                        algalon->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC);
+                        algalon->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
                 }
 
                 // Keepers at Observation Ring
@@ -560,7 +566,7 @@ class instance_ulduar : public InstanceMapScript
                     case GO_CELESTIAL_PLANETARIUM_ACCESS_10:
                     case GO_CELESTIAL_PLANETARIUM_ACCESS_25:
                         if (_algalonSummoned)
-                            gameObject->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_IN_USE);
+                            gameObject->AddFlag(GO_FLAG_IN_USE);
                         break;
                     case GO_DOODAD_UL_SIGILDOOR_01:
                         AlgalonSigilDoorGUID[0] = gameObject->GetGUID();
@@ -752,7 +758,7 @@ class instance_ulduar : public InstanceMapScript
                             if (GameObject* gameObject = instance->GetGameObject(KologarnChestGUID))
                             {
                                 gameObject->SetRespawnTime(gameObject->GetRespawnDelay());
-                                gameObject->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                                gameObject->RemoveFlag(GO_FLAG_NOT_SELECTABLE);
                             }
                             HandleGameObject(KologarnBridgeGUID, false);
                         }
@@ -762,7 +768,7 @@ class instance_ulduar : public InstanceMapScript
                         {
                             if (GameObject* HodirRareCache = instance->GetGameObject(HodirRareCacheGUID))
                                 if (GetData(DATA_HODIR_RARE_CACHE))
-                                    HodirRareCache->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                                    HodirRareCache->RemoveFlag(GO_FLAG_NOT_SELECTABLE);
                             if (GameObject* HodirChest = instance->GetGameObject(HodirChestGUID))
                                 HodirChest->SetRespawnTime(HodirChest->GetRespawnDelay());
 
@@ -1187,7 +1193,7 @@ class instance_ulduar : public InstanceMapScript
                                     if (Vehicle* vehicle = vehicleCreature->GetVehicleKit())
                                     {
                                         vehicle->RemoveAllPassengers();
-                                        vehicleCreature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                                        vehicleCreature->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                                         vehicleCreature->DespawnOrUnsummon(5 * MINUTE * IN_MILLISECONDS);
                                     }
                                 }

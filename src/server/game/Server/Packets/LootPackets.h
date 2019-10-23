@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -20,7 +20,7 @@
 
 #include "Packet.h"
 #include "ObjectGuid.h"
-#include "ItemPackets.h"
+#include "ItemPacketsCommon.h"
 
 namespace WorldPackets
 {
@@ -71,7 +71,6 @@ namespace WorldPackets
             uint32 Coins         = 0;
             std::vector<LootItemData> Items;
             std::vector<LootCurrency> Currencies;
-            bool PersonalLooting = false;
             bool Acquired        = false;
             bool AELooting       = false;
         };
@@ -90,7 +89,7 @@ namespace WorldPackets
 
             void Read() override;
 
-            std::vector<LootRequest> Loot;
+            Array<LootRequest, 1000> Loot;
         };
 
         class LootRemoved final : public ServerPacket
@@ -130,7 +129,8 @@ namespace WorldPackets
 
             WorldPacket const* Write() override;
 
-            uint32 Money = 0;
+            uint64 Money = 0;
+            uint64 MoneyMod = 0;
             bool SoleLooter = false;
         };
 
@@ -183,6 +183,7 @@ namespace WorldPackets
             WorldPacket const* Write() override;
 
             ObjectGuid Owner;
+            ObjectGuid LootObj;
             Optional<ObjectGuid> Master;
             Optional<ObjectGuid> RoundRobinWinner;
         };

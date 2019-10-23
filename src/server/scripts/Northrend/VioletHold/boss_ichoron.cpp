@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,8 +16,11 @@
  */
 
 #include "ScriptMgr.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
 #include "ScriptedCreature.h"
-#include "SpellAuraEffects.h"
+#include "SpellAuras.h"
+#include "SpellInfo.h"
 #include "SpellScript.h"
 #include "violet_hold.h"
 
@@ -251,7 +254,7 @@ class npc_ichor_globule : public CreatureScript
                 if (spellInfo->Id == SPELL_WATER_GLOBULE_VISUAL)
                 {
                     DoCast(me, SPELL_WATER_GLOBULE_TRANSFORM);
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                    me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                     me->GetMotionMaster()->MoveFollow(caster, 0.0f, 0.0f);
                 }
             }
@@ -305,14 +308,14 @@ class spell_ichoron_drained : public SpellScriptLoader
 
             void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
             {
-                GetTarget()->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_UNK_31);
-                GetTarget()->SetFlag(UNIT_FIELD_FLAGS_2, UNIT_FLAG2_FEIGN_DEATH);
+                GetTarget()->AddUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_UNK_31));
+                GetTarget()->AddUnitFlag2(UNIT_FLAG2_FEIGN_DEATH);
             }
 
             void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
             {
-                GetTarget()->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_UNK_31);
-                GetTarget()->RemoveFlag(UNIT_FIELD_FLAGS_2, UNIT_FLAG2_FEIGN_DEATH);
+                GetTarget()->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_UNK_31));
+                GetTarget()->RemoveUnitFlag2(UNIT_FLAG2_FEIGN_DEATH);
 
                 if (GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_EXPIRE)
                     if (GetTarget()->IsAIEnabled)
@@ -344,9 +347,7 @@ class spell_ichoron_merge : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spellInfo*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_SHRINK))
-                    return false;
-                return true;
+                return ValidateSpellInfo({ SPELL_SHRINK });
             }
 
             void HandleScript(SpellEffIndex /*effIndex*/)
@@ -419,14 +420,15 @@ class spell_ichoron_splatter : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spellInfo*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_WATER_GLOBULE_SUMMON_1)
-                    || !sSpellMgr->GetSpellInfo(SPELL_WATER_GLOBULE_SUMMON_2)
-                    || !sSpellMgr->GetSpellInfo(SPELL_WATER_GLOBULE_SUMMON_3)
-                    || !sSpellMgr->GetSpellInfo(SPELL_WATER_GLOBULE_SUMMON_4)
-                    || !sSpellMgr->GetSpellInfo(SPELL_WATER_GLOBULE_SUMMON_5)
-                    || !sSpellMgr->GetSpellInfo(SPELL_SHRINK))
-                    return false;
-                return true;
+                return ValidateSpellInfo(
+                {
+                    SPELL_WATER_GLOBULE_SUMMON_1,
+                    SPELL_WATER_GLOBULE_SUMMON_2,
+                    SPELL_WATER_GLOBULE_SUMMON_3,
+                    SPELL_WATER_GLOBULE_SUMMON_4,
+                    SPELL_WATER_GLOBULE_SUMMON_5,
+                    SPELL_SHRINK
+                });
             }
 
             void PeriodicTick(AuraEffect const* /*aurEff*/)

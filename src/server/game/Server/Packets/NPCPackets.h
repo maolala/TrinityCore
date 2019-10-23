@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,10 +19,10 @@
 #define NPCPackets_h__
 
 #include "Packet.h"
-#include "ItemPackets.h"
-#include "Creature.h"
-
-#include "G3D/Vector2.h"
+#include "ItemPacketsCommon.h"
+#include "ObjectGuid.h"
+#include "Position.h"
+#include <array>
 
 namespace WorldPackets
 {
@@ -60,8 +60,8 @@ namespace WorldPackets
             int32 QuestID       = 0;
             int32 QuestType     = 0;
             int32 QuestLevel    = 0;
+            int32 QuestMaxScalingLevel = 0;
             bool Repeatable     = false;
-            bool Ignored        = false;
             std::string QuestTitle;
             int32 QuestFlags[2] = { };
         };
@@ -114,6 +114,7 @@ namespace WorldPackets
             int32 ExtendedCostID            = 0;
             int32 PlayerConditionFailed     = 0;
             bool DoNotFilterOnVendor        = false;
+            bool Refundable                 = false;
         };
 
         class VendorInventory final : public ServerPacket
@@ -131,10 +132,10 @@ namespace WorldPackets
         struct TrainerListSpell
         {
             int32 SpellID       = 0;
-            int32 MoneyCost     = 0;
-            int32 ReqSkillLine  = 0;
-            int32 ReqSkillRank  = 0;
-            int32 ReqAbility[MAX_TRAINERSPELL_ABILITY_REQS] = { };
+            uint32 MoneyCost    = 0;
+            uint32 ReqSkillLine = 0;
+            uint32 ReqSkillRank = 0;
+            std::array<int32, 3> ReqAbility = { };
             uint8 Usable        = 0;
             uint8 ReqLevel      = 0;
         };
@@ -146,11 +147,11 @@ namespace WorldPackets
 
             WorldPacket const* Write() override;
 
-            std::string Greeting;
-            int32 TrainerType   = 0;
             ObjectGuid TrainerGUID;
+            int32 TrainerType   = 0;
             int32 TrainerID     = 1;
             std::vector<TrainerListSpell> Spells;
+            std::string Greeting;
         };
 
         class ShowBank final : public ServerPacket
@@ -180,8 +181,9 @@ namespace WorldPackets
 
             WorldPacket const* Write() override;
 
+            int32 ID            = 0;
             uint32 Flags        = 0;
-            G3D::Vector2 Pos;
+            TaggedPosition<Position::XY> Pos;
             int32 Icon          = 0;
             int32 Importance    = 0;
             std::string Name;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,6 +17,8 @@
 
 #ifndef GUNDRAK_H_
 #define GUNDRAK_H_
+
+#include "CreatureAIImpl.h"
 
 #define GundrakScriptName "instance_gundrak"
 #define DataHeader "GD"
@@ -57,7 +59,8 @@ enum GDCreatureIds
     NPC_DRAKKARI_COLOSSUS            = 29307,
     NPC_RUIN_DWELLER                 = 29920,
     NPC_ECK_THE_FEROCIOUS            = 29932,
-    NPC_ALTAR_TRIGGER                = 30298
+    NPC_ALTAR_TRIGGER                = 30298,
+    NPC_RHINO_SPIRIT                 = 29791
 };
 
 enum GDGameObjectIds
@@ -90,7 +93,7 @@ enum GDInstanceMisc
     TIMER_STATUE_ACTIVATION          = 3500
 };
 
-template<class AI>
+template<typename AI>
 inline AI* GetGundrakAI(Creature* creature)
 {
     return GetInstanceAI<AI>(creature, GundrakScriptName);

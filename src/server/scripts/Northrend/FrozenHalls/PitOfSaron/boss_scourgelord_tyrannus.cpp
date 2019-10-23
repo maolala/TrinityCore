@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,13 +16,17 @@
  */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "SpellScript.h"
-#include "SpellAuraEffects.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "pit_of_saron.h"
-#include "Vehicle.h"
 #include "Player.h"
 #include "PlayerAI.h"
+#include "ScriptedCreature.h"
+#include "SpellAuraEffects.h"
+#include "SpellScript.h"
+#include "TemporarySummon.h"
+#include "Vehicle.h"
 
 enum Yells
 {
@@ -148,7 +152,7 @@ class boss_tyrannus : public CreatureScript
                 events.Reset();
                 events.SetPhase(PHASE_NONE);
                 me->SetReactState(REACT_PASSIVE);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                 instance->SetBossState(DATA_TYRANNUS, NOT_STARTED);
             }
 
@@ -164,7 +168,7 @@ class boss_tyrannus : public CreatureScript
 
             void AttackStart(Unit* victim) override
             {
-                if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+                if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                     return;
 
                 if (victim && me->Attack(victim, true) && !events.IsInPhase(PHASE_INTRO))
@@ -239,7 +243,7 @@ class boss_tyrannus : public CreatureScript
                             if (Creature* rimefang = ObjectAccessor::GetCreature(*me, instance->GetGuidData(DATA_RIMEFANG)))
                                 rimefang->AI()->DoAction(ACTION_START_RIMEFANG);    //set rimefang also infight
                             events.SetPhase(PHASE_COMBAT);
-                            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                            me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                             me->SetReactState(REACT_AGGRESSIVE);
                             DoCast(me, SPELL_FULL_HEAL);
                             DoZoneInCombat();
@@ -312,7 +316,7 @@ class boss_rimefang : public CreatureScript
                 Initialize();
                 me->SetCanFly(true);
                 me->SetReactState(REACT_PASSIVE);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
             }
 
             void JustReachedHome() override
@@ -387,7 +391,7 @@ class boss_rimefang : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new boss_rimefangAI(creature);
+            return GetPitOfSaronAI<boss_rimefangAI>(creature);
         }
 };
 
@@ -520,9 +524,7 @@ class spell_tyrannus_rimefang_icy_blast : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spellInfo*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_ICY_BLAST_AURA))
-                    return false;
-                return true;
+                return ValidateSpellInfo({ SPELL_ICY_BLAST_AURA });
             }
 
             void HandleTriggerMissile(SpellEffIndex effIndex)

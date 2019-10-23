@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -17,19 +17,22 @@
  */
 
 #include "BattlegroundSA.h"
+#include "Creature.h"
+#include "CreatureAI.h"
+#include "DB2Stores.h"
 #include "GameObject.h"
-#include "Language.h"
-#include "ObjectMgr.h"
+#include "GameTime.h"
+#include "Log.h"
+#include "Map.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
-#include "ScriptedCreature.h"
-#include "WorldPacket.h"
+#include "Random.h"
+#include "UpdateData.h"
+#include "WorldStatePackets.h"
 
 BattlegroundSA::BattlegroundSA()
 {
-    StartMessageIds[BG_STARTING_EVENT_FIRST]  = LANG_BG_SA_START_TWO_MINUTES;
-    StartMessageIds[BG_STARTING_EVENT_SECOND] = LANG_BG_SA_START_ONE_MINUTE;
-    StartMessageIds[BG_STARTING_EVENT_THIRD]  = LANG_BG_SA_START_HALF_MINUTE;
-    StartMessageIds[BG_STARTING_EVENT_FOURTH] = 0;
+    StartMessageIds[BG_STARTING_EVENT_FOURTH] = 0; // handle by Kanrethad
 
     BgObjects.resize(BG_SA_MAXOBJ);
     BgCreatures.resize(BG_SA_MAXNPC + BG_SA_MAX_GY);
@@ -151,8 +154,8 @@ bool BattlegroundSA::ResetObjs()
     }
 
     // MAD props for Kiper for discovering those values - 4 hours of his work.
-    GetBGObject(BG_SA_BOAT_ONE)->SetParentRotation(G3D::Quat(0.f, 0.f, 1.0f, 0.0002f));
-    GetBGObject(BG_SA_BOAT_TWO)->SetParentRotation(G3D::Quat(0.f, 0.f, 1.0f, 0.00001f));
+    GetBGObject(BG_SA_BOAT_ONE)->SetParentRotation(QuaternionData(0.f, 0.f, 1.0f, 0.0002f));
+    GetBGObject(BG_SA_BOAT_TWO)->SetParentRotation(QuaternionData(0.f, 0.f, 1.0f, 0.00001f));
     SpawnBGObject(BG_SA_BOAT_ONE, RESPAWN_IMMEDIATELY);
     SpawnBGObject(BG_SA_BOAT_TWO, RESPAWN_IMMEDIATELY);
 
@@ -185,9 +188,7 @@ bool BattlegroundSA::ResetObjs()
     //Graveyards
     for (uint8 i = 0; i < BG_SA_MAX_GY; i++)
     {
-        WorldSafeLocsEntry const* sg = NULL;
-        sg = sWorldSafeLocsStore.LookupEntry(BG_SA_GYEntries[i]);
-
+        WorldSafeLocsEntry const* sg = sWorldSafeLocsStore.LookupEntry(BG_SA_GYEntries[i]);
         if (!sg)
         {
             TC_LOG_ERROR("bg.battleground", "SOTA: Can't find GY entry %u", BG_SA_GYEntries[i]);
@@ -320,7 +321,7 @@ void BattlegroundSA::PostUpdateImpl(uint32 diff)
             {
                 SignaledRoundTwo = true;
                 InitSecondRound = false;
-                SendMessageToAll(LANG_BG_SA_ROUND_TWO_ONE_MINUTE, CHAT_MSG_BG_SYSTEM_NEUTRAL);
+                SendBroadcastText(BG_SA_TEXT_ROUND_TWO_START_ONE_MINUTE, CHAT_MSG_BG_SYSTEM_NEUTRAL);
             }
         }
         else
@@ -377,7 +378,7 @@ void BattlegroundSA::PostUpdateImpl(uint32 diff)
             if (!SignaledRoundTwoHalfMin)
             {
                 SignaledRoundTwoHalfMin = true;
-                SendMessageToAll(LANG_BG_SA_ROUND_TWO_START_HALF_MINUTE, CHAT_MSG_BG_SYSTEM_NEUTRAL);
+                SendBroadcastText(BG_SA_TEXT_ROUND_TWO_START_HALF_MINUTE, CHAT_MSG_BG_SYSTEM_NEUTRAL);
             }
         }
         StartShips();
@@ -674,9 +675,9 @@ void BattlegroundSA::DemolisherStartState(bool start)
         if (Creature* dem = GetBGCreature(i))
         {
             if (start)
-                dem->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+                dem->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE));
             else
-                dem->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+                dem->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE));
         }
     }
 }
@@ -758,9 +759,9 @@ void BattlegroundSA::UpdateObjectInteractionFlags(uint32 objectId)
     if (GameObject* go = GetBGObject(objectId))
     {
         if (CanInteractWithObject(objectId))
-            go->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+            go->RemoveFlag(GO_FLAG_NOT_SELECTABLE);
         else
-            go->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+            go->AddFlag(GO_FLAG_NOT_SELECTABLE);
     }
 }
 
@@ -894,9 +895,9 @@ void BattlegroundSA::TitanRelicActivated(Player* clicker)
         if (clicker->GetTeamId() == Attackers)
         {
             if (clicker->GetTeamId() == TEAM_ALLIANCE)
-                SendMessageToAll(LANG_BG_SA_ALLIANCE_CAPTURED_RELIC, CHAT_MSG_BG_SYSTEM_NEUTRAL);
+                SendBroadcastText(BG_SA_TEXT_ALLIANCE_CAPTURED_TITAN_PORTAL, CHAT_MSG_BG_SYSTEM_ALLIANCE);
             else
-                SendMessageToAll(LANG_BG_SA_HORDE_CAPTURED_RELIC, CHAT_MSG_BG_SYSTEM_NEUTRAL);
+                SendBroadcastText(BG_SA_TEXT_HORDE_CAPTURED_TITAN_PORTAL, CHAT_MSG_BG_SYSTEM_HORDE);
 
             if (Status == BG_SA_ROUND_ONE)
             {
@@ -985,11 +986,11 @@ void BattlegroundSA::UpdateDemolisherSpawns()
                     // Demolisher is not in list
                     if (DemoliserRespawnList.find(i) == DemoliserRespawnList.end())
                     {
-                        DemoliserRespawnList[i] = getMSTime()+30000;
+                        DemoliserRespawnList[i] = GameTime::GetGameTimeMS() +30000;
                     }
                     else
                     {
-                        if (DemoliserRespawnList[i] < getMSTime())
+                        if (DemoliserRespawnList[i] < GameTime::GetGameTimeMS())
                         {
                             Demolisher->Relocate(BG_SA_NpcSpawnlocs[i]);
                             Demolisher->Respawn();

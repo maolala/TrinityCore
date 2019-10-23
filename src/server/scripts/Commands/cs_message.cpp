@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,11 +24,18 @@ EndScriptData */
 
 #include "ScriptMgr.h"
 #include "Chat.h"
+#include "ChatPackets.h"
 #include "Channel.h"
 #include "ChannelMgr.h"
+#include "DatabaseEnv.h"
+#include "DB2Stores.h"
 #include "Language.h"
-#include "Player.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Player.h"
+#include "RBAC.h"
+#include "World.h"
+#include "WorldSession.h"
 
 class message_commandscript : public CommandScript
 {
@@ -108,7 +115,7 @@ public:
             if (channel)
                 channel->SetOwnership(true);
 
-            PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHANNEL_OWNERSHIP);
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHANNEL_OWNERSHIP);
             stmt->setUInt8 (0, 1);
             stmt->setString(1, channelStr);
             CharacterDatabase.Execute(stmt);
@@ -119,7 +126,7 @@ public:
             if (channel)
                 channel->SetOwnership(false);
 
-            PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHANNEL_OWNERSHIP);
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHANNEL_OWNERSHIP);
             stmt->setUInt8 (0, 0);
             stmt->setString(1, channelStr);
             CharacterDatabase.Execute(stmt);

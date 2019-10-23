@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -28,14 +28,15 @@ npc_henry_stern
 EndContentData */
 
 #include "ScriptMgr.h"
+#include "CellImpl.h"
+#include "GridNotifiersImpl.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "Player.h"
+#include "razorfen_downs.h"
 #include "ScriptedCreature.h"
 #include "ScriptedGossip.h"
-#include "razorfen_downs.h"
-#include "Player.h"
-#include "GridNotifiers.h"
-#include "GridNotifiersImpl.h"
-#include "Cell.h"
-#include "CellImpl.h"
+#include "TemporarySummon.h"
 
 /*###
 ## npc_belnistrasz for Quest 3525 "Extinguishing the Idol"
@@ -106,7 +107,7 @@ public:
                 channeling = false;
                 eventProgress = 0;
                 spawnerCount  = 0;
-                me->SetFlag(UNIT_NPC_FLAGS, GOSSIP_OPTION_QUESTGIVER);
+                me->AddNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
             }
         }
 
@@ -135,7 +136,7 @@ public:
             {
                 eventInProgress = true;
                 Talk(SAY_QUEST_ACCEPTED);
-                me->RemoveFlag(UNIT_NPC_FLAGS, GOSSIP_OPTION_QUESTGIVER);
+                me->RemoveNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
                 me->setFaction(FACTION_ESCORT);
                 me->GetMotionMaster()->MovePath(PATH_ESCORT, false);
             }
@@ -204,11 +205,11 @@ public:
                     case EVENT_COMPLETE:
                     {
                         DoCast(me, SPELL_IDOM_ROOM_CAMERA_SHAKE);
-                        me->SummonGameObject(GO_BELNISTRASZS_BRAZIER, 2577.196f, 947.0781f, 53.16757f, 2.356195f, G3D::Quat(0.f, 0.f, 0.9238796f, 0.3826832f), 3600);
+                        me->SummonGameObject(GO_BELNISTRASZS_BRAZIER, 2577.196f, 947.0781f, 53.16757f, 2.356195f, QuaternionData(0.f, 0.f, 0.9238796f, 0.3826832f), 3600);
                         std::list<WorldObject*> ClusterList;
                         Trinity::AllWorldObjectsInRange objects(me, 50.0f);
                         Trinity::WorldObjectListSearcher<Trinity::AllWorldObjectsInRange> searcher(me, ClusterList, objects);
-                        me->VisitNearbyObject(50.0f, searcher);
+                        Cell::VisitAllObjects(me, searcher, 50.0f);
                         for (std::list<WorldObject*>::const_iterator itr = ClusterList.begin(); itr != ClusterList.end(); ++itr)
                         {
                             if (Player* player = (*itr)->ToPlayer())
@@ -255,7 +256,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_belnistraszAI>(creature);
+        return GetRazorfenDownsAI<npc_belnistraszAI>(creature);
     }
 };
 
@@ -293,7 +294,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_idol_room_spawnerAI>(creature);
+        return GetRazorfenDownsAI<npc_idol_room_spawnerAI>(creature);
     }
 };
 
@@ -363,7 +364,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_tomb_creatureAI>(creature);
+        return GetRazorfenDownsAI<npc_tomb_creatureAI>(creature);
     }
 };
 

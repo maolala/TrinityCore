@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,11 +18,11 @@
 #ifndef MailPackets_h__
 #define MailPackets_h__
 
-#include "ItemPackets.h"
 #include "Packet.h"
-#include "QueryPackets.h"
+#include "ItemPacketsCommon.h"
 #include "ObjectGuid.h"
 
+class Player;
 struct Mail;
 
 namespace WorldPackets
@@ -227,10 +227,10 @@ namespace WorldPackets
             std::vector<MailNextTimeEntry> Next;
         };
 
-        class NotifyRecievedMail : ServerPacket
+        class NotifyReceivedMail : ServerPacket
         {
         public:
-            NotifyRecievedMail() : ServerPacket(SMSG_NOTIFY_RECEIVED_MAIL, 4) { }
+            NotifyReceivedMail() : ServerPacket(SMSG_NOTIFY_RECEIVED_MAIL, 4) { }
 
             WorldPacket const* Write() override;
 

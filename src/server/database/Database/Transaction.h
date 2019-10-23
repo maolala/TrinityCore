@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,14 +18,15 @@
 #ifndef _TRANSACTION_H
 #define _TRANSACTION_H
 
+#include "Define.h"
+#include "DatabaseEnvFwd.h"
 #include "SQLOperation.h"
 #include "StringFormat.h"
-
-//- Forward declare (don't include header to prevent circular includes)
-class PreparedStatement;
+#include <mutex>
+#include <vector>
 
 /*! Transactions, high level class. */
-class TC_DATABASE_API Transaction
+class TC_DATABASE_API TransactionBase
 {
     friend class TransactionTask;
     friend class MySQLConnection;
@@ -34,10 +35,9 @@ class TC_DATABASE_API Transaction
     friend class DatabaseWorkerPool;
 
     public:
-        Transaction() : _cleanedUp(false) { }
-        ~Transaction() { Cleanup(); }
+        TransactionBase() : _cleanedUp(false) { }
+        virtual ~TransactionBase() { Cleanup(); }
 
-        void Append(PreparedStatement* statement);
         void Append(const char* sql);
         template<typename Format, typename... Args>
         void PAppend(Format&& sql, Args&&... args)
@@ -45,17 +45,27 @@ class TC_DATABASE_API Transaction
             Append(Trinity::StringFormat(std::forward<Format>(sql), std::forward<Args>(args)...).c_str());
         }
 
-        size_t GetSize() const { return m_queries.size(); }
+        std::size_t GetSize() const { return m_queries.size(); }
 
     protected:
+        void AppendPreparedStatement(PreparedStatementBase* statement);
         void Cleanup();
-        std::list<SQLElementData> m_queries;
+        std::vector<SQLElementData> m_queries;
 
     private:
         bool _cleanedUp;
-
 };
-typedef std::shared_ptr<Transaction> SQLTransaction;
+
+template<typename T>
+class Transaction : public TransactionBase
+{
+public:
+    using TransactionBase::Append;
+    void Append(PreparedStatement<T>* statement)
+    {
+        AppendPreparedStatement(statement);
+    }
+};
 
 /*! Low level class*/
 class TC_DATABASE_API TransactionTask : public SQLOperation
@@ -64,13 +74,13 @@ class TC_DATABASE_API TransactionTask : public SQLOperation
     friend class DatabaseWorker;
 
     public:
-        TransactionTask(SQLTransaction trans) : m_trans(trans) { }
+        TransactionTask(std::shared_ptr<TransactionBase> trans) : m_trans(trans) { }
         ~TransactionTask() { }
 
     protected:
         bool Execute() override;
 
-        SQLTransaction m_trans;
+        std::shared_ptr<TransactionBase> m_trans;
         static std::mutex _deadlockLock;
 };
 

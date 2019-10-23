@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -23,14 +23,18 @@ Category: commandscripts
 EndScriptData */
 
 #include "AccountMgr.h"
+#include "CharacterCache.h"
 #include "Chat.h"
 #include "Config.h"
 #include "Language.h"
 #include "ObjectMgr.h"
 #include "Opcodes.h"
 #include "Player.h"
+#include "Realm.h"
 #include "ScriptMgr.h"
 #include "SupportMgr.h"
+#include "World.h"
+#include "WorldSession.h"
 
 class ticket_commandscript : public CommandScript
 {
@@ -122,8 +126,8 @@ bool ticket_commandscript::HandleTicketAssignToCommand(ChatHandler* handler, cha
         return true;
     }
 
-    ObjectGuid targetGuid = ObjectMgr::GetPlayerGUIDByName(target);
-    uint32 accountId = ObjectMgr::GetPlayerAccountIdByGUID(targetGuid);
+    ObjectGuid targetGuid = sCharacterCache->GetCharacterGuidByName(target);
+    uint32 accountId = sCharacterCache->GetCharacterAccountIdByGuid(targetGuid);
     // Target must exist and have administrative rights
     if (!AccountMgr::HasPermission(accountId, rbac::RBAC_PERM_COMMANDS_BE_ASSIGNED_TICKET, realm.Id.Realm))
     {
@@ -143,7 +147,7 @@ bool ticket_commandscript::HandleTicketAssignToCommand(ChatHandler* handler, cha
     Player* player = handler->GetSession() ? handler->GetSession()->GetPlayer() : nullptr;
     if (player && ticket->IsAssignedNotTo(player->GetGUID()))
     {
-        handler->PSendSysMessage(LANG_COMMAND_TICKETALREADYASSIGNED, ticket->GetId(), target.c_str());
+        handler->PSendSysMessage(LANG_COMMAND_TICKETALREADYASSIGNED, ticket->GetId());
         return true;
     }
 
@@ -323,7 +327,7 @@ bool ticket_commandscript::HandleTicketUnAssignCommand(ChatHandler* handler, cha
     else
     {
         ObjectGuid guid = ticket->GetAssignedToGUID();
-        uint32 accountId = ObjectMgr::GetPlayerAccountIdByGUID(guid);
+        uint32 accountId = sCharacterCache->GetCharacterAccountIdByGuid(guid);
         security = AccountMgr::GetSecurity(accountId, realm.Id.Realm);
     }
 

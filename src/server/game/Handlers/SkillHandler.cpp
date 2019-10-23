@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -16,15 +16,16 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "WorldSession.h"
 #include "Common.h"
+#include "DB2Stores.h"
+#include "GossipDef.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
-#include "Player.h"
 #include "Pet.h"
-#include "WorldPacket.h"
-#include "WorldSession.h"
-#include "TalentPackets.h"
+#include "Player.h"
 #include "SpellPackets.h"
+#include "TalentPackets.h"
 
 void WorldSession::HandleLearnTalentsOpcode(WorldPackets::Talent::LearnTalents& packet)
 {
@@ -50,9 +51,33 @@ void WorldSession::HandleLearnTalentsOpcode(WorldPackets::Talent::LearnTalents& 
         _player->SendTalentsInfoData();
 }
 
+void WorldSession::HandleLearnPvpTalentsOpcode(WorldPackets::Talent::LearnPvpTalents& packet)
+{
+    WorldPackets::Talent::LearnPvpTalentsFailed learnPvpTalentsFailed;
+    bool anythingLearned = false;
+    for (WorldPackets::Talent::PvPTalent pvpTalent : packet.Talents)
+    {
+        if (TalentLearnResult result = _player->LearnPvpTalent(pvpTalent.PvPTalentID, pvpTalent.Slot, &learnPvpTalentsFailed.SpellID))
+        {
+            if (!learnPvpTalentsFailed.Reason)
+                learnPvpTalentsFailed.Reason = result;
+
+            learnPvpTalentsFailed.Talents.push_back(pvpTalent);
+        }
+        else
+            anythingLearned = true;
+    }
+
+    if (learnPvpTalentsFailed.Reason)
+        SendPacket(learnPvpTalentsFailed.Write());
+
+    if (anythingLearned)
+        _player->SendTalentsInfoData();
+}
+
 void WorldSession::HandleConfirmRespecWipeOpcode(WorldPackets::Talent::ConfirmRespecWipe& confirmRespecWipe)
 {
-    Creature* unit = GetPlayer()->GetNPCIfCanInteractWith(confirmRespecWipe.RespecMaster, UNIT_NPC_FLAG_TRAINER);
+    Creature* unit = GetPlayer()->GetNPCIfCanInteractWith(confirmRespecWipe.RespecMaster, UNIT_NPC_FLAG_TRAINER, UNIT_NPC_FLAG_2_NONE);
     if (!unit)
     {
         TC_LOG_DEBUG("network", "WORLD: HandleConfirmRespecWipeOpcode - %s not found or you can't interact with him.", confirmRespecWipe.RespecMaster.ToString().c_str());
@@ -65,7 +90,10 @@ void WorldSession::HandleConfirmRespecWipeOpcode(WorldPackets::Talent::ConfirmRe
         return;
     }
 
-    if (!unit->isCanTrainingAndResetTalentsOf(_player))
+    if (!unit->CanResetTalents(_player))
+        return;
+
+    if (!_player->PlayerTalkClass->GetGossipMenu().HasMenuItemType(GOSSIP_OPTION_UNLEARNTALENTS))
         return;
 
     // remove fake death

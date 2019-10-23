@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -23,22 +23,22 @@
  */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "ScriptedGossip.h"
-#include "ScriptedEscortAI.h"
-#include "Cell.h"
 #include "CellImpl.h"
-#include "GridNotifiers.h"
-#include "GridNotifiersImpl.h"
 #include "CombatAI.h"
+#include "GameObject.h"
+#include "GridNotifiersImpl.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "PassiveAI.h"
-#include "ObjectMgr.h"
+#include "Player.h"
+#include "ScriptedEscortAI.h"
+#include "ScriptedGossip.h"
+#include "Spell.h"
 #include "SpellInfo.h"
 #include "SpellScript.h"
-#include "Vehicle.h"
-#include "VehicleDefines.h"
 #include "ulduar.h"
-#include "Spell.h"
+#include "Vehicle.h"
 
 enum Spells
 {
@@ -248,7 +248,7 @@ class boss_flame_leviathan : public CreatureScript
 
                 DoCast(SPELL_INVIS_AND_STEALTH_DETECT);
 
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_STUNNED);
+                me->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_STUNNED));
                 me->SetReactState(REACT_PASSIVE);
             }
 
@@ -537,7 +537,7 @@ class boss_flame_leviathan : public CreatureScript
                             me->SetHomePosition(Center);
                             me->GetMotionMaster()->MoveCharge(Center.GetPositionX(), Center.GetPositionY(), Center.GetPositionZ()); // position center
                             me->SetReactState(REACT_AGGRESSIVE);
-                            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_STUNNED);
+                            me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_STUNNED));
                             return;
                         }
                         break;
@@ -586,7 +586,7 @@ class boss_flame_leviathan_seat : public CreatureScript
             boss_flame_leviathan_seatAI(Creature* creature) : ScriptedAI(creature)
             {
                 me->SetReactState(REACT_PASSIVE);
-                me->SetDisplayId(me->GetCreatureTemplate()->Modelid2);
+                me->SetDisplayFromModel(1);
                 instance = creature->GetInstanceScript();
             }
 
@@ -608,17 +608,17 @@ class boss_flame_leviathan_seat : public CreatureScript
                         if (Creature* turret = turretPassenger->ToCreature())
                         {
                             turret->setFaction(me->GetVehicleBase()->getFaction());
-                            turret->SetUInt32Value(UNIT_FIELD_FLAGS, 0); // unselectable
+                            turret->SetUnitFlags(UnitFlags(0)); // unselectable
                             turret->AI()->AttackStart(who);
                         }
                     if (Unit* devicePassenger = me->GetVehicleKit()->GetPassenger(SEAT_DEVICE))
                         if (Creature* device = devicePassenger->ToCreature())
                         {
-                            device->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_SPELLCLICK);
-                            device->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                            device->AddNpcFlag(UNIT_NPC_FLAG_SPELLCLICK);
+                            device->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                         }
 
-                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                    me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 }
                 else if (seatId == SEAT_TURRET)
                 {
@@ -627,8 +627,8 @@ class boss_flame_leviathan_seat : public CreatureScript
 
                     if (Unit* device = ASSERT_NOTNULL(me->GetVehicleKit())->GetPassenger(SEAT_DEVICE))
                     {
-                        device->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_SPELLCLICK);
-                        device->SetUInt32Value(UNIT_FIELD_FLAGS, 0); // unselectable
+                        device->AddNpcFlag(UNIT_NPC_FLAG_SPELLCLICK);
+                        device->SetUnitFlags(UnitFlags(0)); // unselectable
                     }
                 }
             }
@@ -636,7 +636,7 @@ class boss_flame_leviathan_seat : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<boss_flame_leviathan_seatAI>(creature);
+            return GetUlduarAI<boss_flame_leviathan_seatAI>(creature);
         }
 };
 
@@ -692,7 +692,7 @@ class boss_flame_leviathan_defense_cannon : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new boss_flame_leviathan_defense_cannonAI(creature);
+            return GetUlduarAI<boss_flame_leviathan_defense_cannonAI>(creature);
         }
 };
 
@@ -721,7 +721,7 @@ class boss_flame_leviathan_defense_turret : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new boss_flame_leviathan_defense_turretAI(creature);
+            return GetUlduarAI<boss_flame_leviathan_defense_turretAI>(creature);
         }
 };
 
@@ -743,8 +743,8 @@ class boss_flame_leviathan_overload_device : public CreatureScript
 
                 if (me->GetVehicle())
                 {
-                    me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_SPELLCLICK);
-                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                    me->RemoveNpcFlag(UNIT_NPC_FLAG_SPELLCLICK);
+                    me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
 
                     if (Unit* player = me->GetVehicle()->GetPassenger(SEAT_PLAYER))
                     {
@@ -758,7 +758,7 @@ class boss_flame_leviathan_overload_device : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new boss_flame_leviathan_overload_deviceAI(creature);
+            return GetUlduarAI<boss_flame_leviathan_overload_deviceAI>(creature);
         }
 };
 
@@ -777,7 +777,7 @@ class boss_flame_leviathan_safety_container : public CreatureScript
             {
                 float x, y, z;
                 me->GetPosition(x, y, z);
-                z = me->GetMap()->GetHeight(me->GetPhaseMask(), x, y, z);
+                z = me->GetMap()->GetHeight(me->GetPhaseShift(), x, y, z);
                 me->GetMotionMaster()->MovePoint(0, x, y, z);
                 me->SetPosition(x, y, z, 0);
             }
@@ -789,7 +789,7 @@ class boss_flame_leviathan_safety_container : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new boss_flame_leviathan_safety_containerAI(creature);
+            return GetUlduarAI<boss_flame_leviathan_safety_containerAI>(creature);
         }
 };
 
@@ -858,7 +858,7 @@ class npc_mechanolift : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_mechanoliftAI(creature);
+            return GetUlduarAI<npc_mechanoliftAI>(creature);
         }
 };
 
@@ -871,7 +871,7 @@ class npc_pool_of_tar : public CreatureScript
         {
             npc_pool_of_tarAI(Creature* creature) : ScriptedAI(creature)
             {
-                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 me->SetReactState(REACT_PASSIVE);
                 me->CastSpell(me, SPELL_TAR_PASSIVE, true);
             }
@@ -892,7 +892,7 @@ class npc_pool_of_tar : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_pool_of_tarAI(creature);
+            return GetUlduarAI<npc_pool_of_tarAI>(creature);
         }
 };
 
@@ -927,7 +927,7 @@ class npc_colossus : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_colossusAI>(creature);
+            return GetUlduarAI<npc_colossusAI>(creature);
         }
 };
 
@@ -940,7 +940,7 @@ class npc_thorims_hammer : public CreatureScript
         {
             npc_thorims_hammerAI(Creature* creature) : ScriptedAI(creature)
             {
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 me->CastSpell(me, AURA_DUMMY_BLUE, true);
             }
 
@@ -965,7 +965,7 @@ class npc_thorims_hammer : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_thorims_hammerAI(creature);
+            return GetUlduarAI<npc_thorims_hammerAI>(creature);
         }
 };
 
@@ -976,7 +976,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_mimirons_infernoAI(creature);
+        return GetUlduarAI<npc_mimirons_infernoAI>(creature);
     }
 
     struct npc_mimirons_infernoAI : public npc_escortAI
@@ -984,7 +984,7 @@ public:
         npc_mimirons_infernoAI(Creature* creature) : npc_escortAI(creature)
         {
             Initialize();
-            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+            me->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE));
             me->CastSpell(me, AURA_DUMMY_YELLOW, true);
             me->SetReactState(REACT_PASSIVE);
         }
@@ -1042,7 +1042,7 @@ class npc_hodirs_fury : public CreatureScript
         {
             npc_hodirs_furyAI(Creature* creature) : ScriptedAI(creature)
             {
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 me->CastSpell(me, AURA_DUMMY_GREEN, true);
             }
 
@@ -1067,7 +1067,7 @@ class npc_hodirs_fury : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_hodirs_furyAI(creature);
+            return GetUlduarAI<npc_hodirs_furyAI>(creature);
         }
 };
 
@@ -1116,7 +1116,7 @@ class npc_freyas_ward : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_freyas_wardAI(creature);
+            return GetUlduarAI<npc_freyas_wardAI>(creature);
         }
 };
 
@@ -1164,7 +1164,7 @@ class npc_freya_ward_summon : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_freya_ward_summonAI(creature);
+            return GetUlduarAI<npc_freya_ward_summonAI>(creature);
         }
 };
 
@@ -1190,10 +1190,10 @@ class npc_brann_bronzebeard_ulduar_intro : public CreatureScript
             {
                 if (menuId == GOSSIP_MENU_BRANN_BRONZEBEARD && gossipListId == GOSSIP_OPTION_BRANN_BRONZEBEARD)
                 {
-                    me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
-                    player->PlayerTalkClass->SendCloseGossip();
+                    me->RemoveNpcFlag(UNIT_NPC_FLAG_GOSSIP);
+                    CloseGossipMenuFor(player);
                     if (Creature* loreKeeper = _instance->GetCreature(DATA_LORE_KEEPER_OF_NORGANNON))
-                        loreKeeper->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                        loreKeeper->RemoveNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                 }
             }
 
@@ -1243,11 +1243,11 @@ class npc_lorekeeper : public CreatureScript
             {
                 if (menuId == GOSSIP_MENU_LORE_KEEPER && gossipListId == GOSSIP_OPTION_LORE_KEEPER)
                 {
-                    me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
-                    player->PlayerTalkClass->SendCloseGossip();
-                    _instance->instance->LoadGrid(364, -16); // make sure leviathan is loaded
+                    me->RemoveNpcFlag(UNIT_NPC_FLAG_GOSSIP);
+                    CloseGossipMenuFor(player);
+                    me->GetMap()->LoadGrid(364, -16); // make sure leviathan is loaded
 
-                    if (Creature* leviathan = _instance->instance->GetCreature(_instance->GetGuidData(BOSS_LEVIATHAN)))
+                    if (Creature* leviathan = ObjectAccessor::GetCreature(*me, _instance->GetGuidData(BOSS_LEVIATHAN)))
                     {
                         leviathan->AI()->DoAction(ACTION_START_HARD_MODE);
                         me->SetVisible(false);
@@ -1256,7 +1256,7 @@ class npc_lorekeeper : public CreatureScript
                         {
                             if (Creature* brann = _instance->GetCreature(DATA_BRANN_BRONZEBEARD_INTRO))
                             {
-                                brann->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                                brann->RemoveNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                                 delorah->GetMotionMaster()->MovePoint(0, brann->GetPositionX() - 4, brann->GetPositionY(), brann->GetPositionZ());
                                 /// @todo delorah->AI()->Talk(xxxx, brann->GetGUID()); when reached at branz
                             }
@@ -1271,7 +1271,7 @@ class npc_lorekeeper : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_lorekeeperAI(creature);
+            return GetUlduarAI<npc_lorekeeperAI>(creature);
         }
 };
 
@@ -1592,7 +1592,7 @@ class spell_systems_shutdown : public SpellScriptLoader
 
                 //! This could probably in the SPELL_EFFECT_SEND_EVENT handler too:
                 owner->AddUnitState(UNIT_STATE_STUNNED | UNIT_STATE_ROOT);
-                owner->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED);
+                owner->AddUnitFlag(UNIT_FLAG_STUNNED);
                 owner->RemoveAurasDueToSpell(SPELL_GATHERING_SPEED);
             }
 
@@ -1602,7 +1602,7 @@ class spell_systems_shutdown : public SpellScriptLoader
                 if (!owner)
                     return;
 
-                owner->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED);
+                owner->RemoveUnitFlag(UNIT_FLAG_STUNNED);
             }
 
             void Register() override
@@ -1626,8 +1626,6 @@ class FlameLeviathanPursuedTargetSelector
     };
 
     public:
-        explicit FlameLeviathanPursuedTargetSelector(Unit* unit) : _me(unit) { };
-
         bool operator()(WorldObject* target) const
         {
             //! No players, only vehicles. Pursue is never cast on players.
@@ -1656,9 +1654,6 @@ class FlameLeviathanPursuedTargetSelector
 
             return !playerFound;
         }
-
-    private:
-        Unit const* _me;
 };
 
 class spell_pursue : public SpellScriptLoader
@@ -1679,7 +1674,7 @@ class spell_pursue : public SpellScriptLoader
         private:
             void FilterTargets(std::list<WorldObject*>& targets)
             {
-                targets.remove_if(FlameLeviathanPursuedTargetSelector(GetCaster()));
+                targets.remove_if(FlameLeviathanPursuedTargetSelector());
                 if (!targets.empty())
                 {
                     //! In the end, only one target should be selected
@@ -1750,7 +1745,7 @@ class spell_vehicle_throw_passenger : public SpellScriptLoader
                             std::list<WorldObject*> targetList;
                             Trinity::WorldObjectSpellAreaTargetCheck check(99, GetExplTargetDest(), GetCaster(), GetCaster(), GetSpellInfo(), TARGET_CHECK_DEFAULT, NULL);
                             Trinity::WorldObjectListSearcher<Trinity::WorldObjectSpellAreaTargetCheck> searcher(GetCaster(), targetList, check);
-                            GetCaster()->GetMap()->VisitAll(GetCaster()->m_positionX, GetCaster()->m_positionY, 99, searcher);
+                            Cell::VisitAllObjects(GetCaster(), searcher, 99.0f);
                             float minDist = 99 * 99;
                             Unit* target = NULL;
                             for (std::list<WorldObject*>::iterator itr = targetList.begin(); itr != targetList.end(); ++itr)

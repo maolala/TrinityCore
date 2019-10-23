@@ -23,6 +23,7 @@
 #include "DetourNavMesh.h"
 #include "DetourNavMeshQuery.h"
 #include "MoveSplineInitArgs.h"
+#include <G3D/Vector3.h>
 
 class Unit;
 
@@ -121,7 +122,7 @@ class TC_GAME_API PathGenerator
         void BuildPointPath(float const* startPoint, float const* endPoint);
         void BuildShortcut();
 
-        NavTerrain GetNavTerrain(float x, float y, float z);
+        NavTerrainFlag GetNavTerrain(float x, float y, float z);
         void CreateFilter();
         void UpdateFilter();
 

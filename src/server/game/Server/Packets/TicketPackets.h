@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,8 +19,9 @@
 #define TicketPackets_h__
 
 #include "Packet.h"
-#include "LFGPackets.h"
-#include <G3D/Vector3.h>
+#include "LFGPacketsCommon.h"
+#include "Optional.h"
+#include "Position.h"
 
 namespace WorldPackets
 {
@@ -29,7 +30,7 @@ namespace WorldPackets
         struct SupportTicketHeader
         {
             int32 MapID = 0;
-            G3D::Vector3 Position;
+            TaggedPosition<::Position::XYZ> Position;
             float Facing = 0.0f;
         };
 
@@ -164,6 +165,8 @@ namespace WorldPackets
                 ObjectGuid LastTitleAuthorGuid;
                 ObjectGuid LastDescriptionAuthorGuid;
                 ObjectGuid LastVoiceChatAuthorGuid;
+                ObjectGuid ListingCreatorGuid;
+                ObjectGuid Unknown735;
                 std::string Title;
                 std::string Description;
                 std::string VoiceChat;
@@ -173,6 +176,11 @@ namespace WorldPackets
             {
                 WorldPackets::LFG::RideTicket RideTicket;
                 std::string Comment;
+            };
+
+            struct SupportTicketCommunityMessage
+            {
+                bool IsPlayerUsingVoice = false;
             };
 
             SupportTicketSubmitComplaint(WorldPacket&& packet) : ClientPacket(CMSG_SUPPORT_TICKET_SUBMIT_COMPLAINT, std::move(packet)) { }
@@ -190,7 +198,7 @@ namespace WorldPackets
             Optional<SupportTicketGuildInfo> GuildInfo;
             Optional<SupportTicketLFGListSearchResult> LFGListSearchResult;
             Optional<SupportTicketLFGListApplicant> LFGListApplicant;
-
+            Optional<SupportTicketCommunityMessage> CommunityMessage;
         };
 
         class Complaint final : public ClientPacket
@@ -218,9 +226,8 @@ namespace WorldPackets
             ComplaintOffender Offender;
             uint32 MailID = 0;
             ComplaintChat Chat;
-            ObjectGuid EventGuid;
-            ObjectGuid InviteGuid;
-
+            uint64 EventGuid = 0;
+            uint64 InviteGuid = 0;
         };
 
         class ComplaintResult final : public ServerPacket

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,17 +16,20 @@
  */
 
 #include "OutdoorPvP.h"
-#include "OutdoorPvPMgr.h"
-#include "ObjectAccessor.h"
-#include "ObjectMgr.h"
+#include "CellImpl.h"
+#include "ChatPackets.h"
+#include "DatabaseEnv.h"
+#include "DB2Stores.h"
+#include "GridNotifiersImpl.h"
+#include "Group.h"
+#include "Log.h"
 #include "Map.h"
 #include "MapManager.h"
-#include "Group.h"
+#include "ObjectAccessor.h"
+#include "ObjectMgr.h"
+#include "OutdoorPvPMgr.h"
 #include "WorldPacket.h"
-#include "GridNotifiers.h"
-#include "GridNotifiersImpl.h"
-#include "CellImpl.h"
-#include "Packets/ChatPackets.h"
+#include "WorldSession.h"
 
 class DefenseMessageBuilder
 {
@@ -169,7 +172,7 @@ bool OPvPCapturePoint::DelCreature(uint32 type)
         ++itr;
         // Don't save respawn time
         c->SetRespawnTime(0);
-        c->RemoveCorpse();
+        c->DespawnOrUnsummon();
         c->AddObjectToRemoveList();
     }
 
@@ -180,7 +183,7 @@ bool OPvPCapturePoint::DelCreature(uint32 type)
     //if (Map* map = sMapMgr->FindMap(cr->GetMapId()))
     //    map->Remove(cr, false);
     // delete respawn time for this creature
-    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CREATURE_RESPAWN);
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CREATURE_RESPAWN);
     stmt->setUInt64(0, spawnId);
     stmt->setUInt16(1, m_PvP->GetMap()->GetId());
     stmt->setUInt32(2, 0);  // instance id, always 0 for world maps
@@ -307,7 +310,7 @@ bool OPvPCapturePoint::Update(uint32 diff)
     std::list<Player*> players;
     Trinity::AnyPlayerInObjectRangeCheck checker(m_capturePoint, radius);
     Trinity::PlayerListSearcher<Trinity::AnyPlayerInObjectRangeCheck> searcher(m_capturePoint, players, checker);
-    m_capturePoint->VisitNearbyWorldObject(radius, searcher);
+    Cell::VisitWorldObjects(m_capturePoint, searcher, radius);
 
     for (std::list<Player*>::iterator itr = players.begin(); itr != players.end(); ++itr)
     {
@@ -652,7 +655,7 @@ void OutdoorPvP::SetMapFromZone(uint32 zone)
 {
     AreaTableEntry const* areaTable = sAreaTableStore.LookupEntry(zone);
     ASSERT(areaTable);
-    Map* map = sMapMgr->CreateBaseMap(areaTable->MapID);
+    Map* map = sMapMgr->CreateBaseMap(areaTable->ContinentID);
     ASSERT(!map->Instanceable());
     m_map = map;
 }

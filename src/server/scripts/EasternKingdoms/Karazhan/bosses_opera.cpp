@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -24,11 +24,16 @@ SDCategory: Karazhan
 EndScriptData */
 
 #include "ScriptMgr.h"
+#include "InstanceScript.h"
+#include "karazhan.h"
+#include "Log.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
 #include "ScriptedCreature.h"
 #include "ScriptedGossip.h"
-#include "karazhan.h"
-#include "Player.h"
 #include "SpellInfo.h"
+#include "TemporarySummon.h"
 
 /***********************************/
 /*** OPERA WIZARD OF OZ EVENT *****/
@@ -118,7 +123,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_dorotheeAI>(creature);
+        return GetKarazhanAI<boss_dorotheeAI>(creature);
     }
 
     struct boss_dorotheeAI : public ScriptedAI
@@ -178,7 +183,7 @@ public:
 
         void AttackStart(Unit* who) override
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::AttackStart(who);
@@ -187,7 +192,7 @@ public:
         void MoveInLineOfSight(Unit* who) override
 
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::MoveInLineOfSight(who);
@@ -199,7 +204,7 @@ public:
             {
                 if (AggroTimer <= diff)
                 {
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     AggroTimer = 0;
                 } else AggroTimer -= diff;
             }
@@ -238,7 +243,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_titoAI(creature);
+        return GetKarazhanAI<npc_titoAI>(creature);
     }
 
     struct npc_titoAI : public ScriptedAI
@@ -312,7 +317,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_strawmanAI>(creature);
+        return GetKarazhanAI<boss_strawmanAI>(creature);
     }
 
     struct boss_strawmanAI : public ScriptedAI
@@ -343,7 +348,7 @@ public:
 
         void AttackStart(Unit* who) override
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::AttackStart(who);
@@ -352,7 +357,7 @@ public:
         void MoveInLineOfSight(Unit* who) override
 
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::MoveInLineOfSight(who);
@@ -399,7 +404,7 @@ public:
             {
                 if (AggroTimer <= diff)
                 {
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     AggroTimer = 0;
                 } else AggroTimer -= diff;
             }
@@ -432,7 +437,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_tinheadAI>(creature);
+        return GetKarazhanAI<boss_tinheadAI>(creature);
     }
 
     struct boss_tinheadAI : public ScriptedAI
@@ -477,7 +482,7 @@ public:
 
         void AttackStart(Unit* who) override
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::AttackStart(who);
@@ -486,7 +491,7 @@ public:
         void MoveInLineOfSight(Unit* who) override
 
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::MoveInLineOfSight(who);
@@ -510,7 +515,7 @@ public:
             {
                 if (AggroTimer <= diff)
                 {
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     AggroTimer = 0;
                 } else AggroTimer -= diff;
             }
@@ -547,7 +552,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_roarAI>(creature);
+        return GetKarazhanAI<boss_roarAI>(creature);
     }
 
     struct boss_roarAI : public ScriptedAI
@@ -581,7 +586,7 @@ public:
         void MoveInLineOfSight(Unit* who) override
 
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::MoveInLineOfSight(who);
@@ -589,7 +594,7 @@ public:
 
         void AttackStart(Unit* who) override
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::AttackStart(who);
@@ -623,7 +628,7 @@ public:
             {
                 if (AggroTimer <= diff)
                 {
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                     AggroTimer = 0;
                 } else AggroTimer -= diff;
             }
@@ -661,7 +666,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_croneAI>(creature);
+        return GetKarazhanAI<boss_croneAI>(creature);
     }
 
     struct boss_croneAI : public ScriptedAI
@@ -679,7 +684,7 @@ public:
             // Anyway, I digress.
             // @todo This line below is obviously a hack. Duh. I'm just coming in here to hackfix the encounter to actually be completable.
             // It needs a rewrite. Badly. Please, take good care of it.
-            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NON_ATTACKABLE);
+            me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NON_ATTACKABLE));
             CycloneTimer = 30000;
             ChainLightningTimer = 10000;
         }
@@ -745,7 +750,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_cycloneAI(creature);
+        return GetKarazhanAI<npc_cycloneAI>(creature);
     }
 
     struct npc_cycloneAI : public ScriptedAI
@@ -833,7 +838,7 @@ class npc_grandmother : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_grandmotherAI(creature);
+            return GetKarazhanAI<npc_grandmotherAI>(creature);
         }
 };
 
@@ -844,7 +849,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_bigbadwolfAI>(creature);
+        return GetKarazhanAI<boss_bigbadwolfAI>(creature);
     }
 
     struct boss_bigbadwolfAI : public ScriptedAI
@@ -1015,7 +1020,7 @@ void PretendToDie(Creature* creature)
     creature->InterruptNonMeleeSpells(true);
     creature->RemoveAllAuras();
     creature->SetHealth(0);
-    creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+    creature->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
     creature->GetMotionMaster()->MovementExpired(false);
     creature->GetMotionMaster()->MoveIdle();
     creature->SetStandState(UNIT_STAND_STATE_DEAD);
@@ -1023,7 +1028,7 @@ void PretendToDie(Creature* creature)
 
 void Resurrect(Creature* target)
 {
-    target->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+    target->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
     target->SetFullHealth();
     target->SetStandState(UNIT_STAND_STATE_STAND);
     target->CastSpell(target, SPELL_RES_VISUAL, true);
@@ -1043,7 +1048,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_julianneAI>(creature);
+        return GetKarazhanAI<boss_julianneAI>(creature);
     }
 
     struct boss_julianneAI : public ScriptedAI
@@ -1111,7 +1116,7 @@ public:
 
         void AttackStart(Unit* who) override
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::AttackStart(who);
@@ -1120,7 +1125,7 @@ public:
         void MoveInLineOfSight(Unit* who) override
 
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::MoveInLineOfSight(who);
@@ -1164,7 +1169,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_romuloAI>(creature);
+        return GetKarazhanAI<boss_romuloAI>(creature);
     }
 
     struct boss_romuloAI : public ScriptedAI
@@ -1248,12 +1253,12 @@ public:
                 {
                     if (Creature* Julianne = (ObjectAccessor::GetCreature((*me), JulianneGUID)))
                     {
-                        Julianne->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                        Julianne->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                         Julianne->GetMotionMaster()->Clear();
                         Julianne->setDeathState(JUST_DIED);
                         Julianne->CombatStop(true);
                         Julianne->DeleteThreatList();
-                        Julianne->SetUInt32Value(OBJECT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE);
+                        Julianne->SetDynamicFlags(UNIT_DYNFLAG_LOOTABLE);
                     }
                     return;
                 }
@@ -1289,7 +1294,7 @@ public:
         void MoveInLineOfSight(Unit* who) override
 
         {
-            if (me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE))
+            if (me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE))
                 return;
 
             ScriptedAI::MoveInLineOfSight(who);
@@ -1377,7 +1382,7 @@ void boss_julianne::boss_julianneAI::UpdateAI(uint32 diff)
         if (AggroYellTimer <= diff)
         {
             Talk(SAY_JULIANNE_AGGRO);
-            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+            me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
             me->setFaction(16);
             AggroYellTimer = 0;
         } else AggroYellTimer -= diff;
@@ -1518,12 +1523,12 @@ void boss_julianne::boss_julianneAI::DamageTaken(Unit* /*done_by*/, uint32 &dama
         {
             if (Creature* Romulo = (ObjectAccessor::GetCreature((*me), RomuloGUID)))
             {
-                Romulo->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                Romulo->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 Romulo->GetMotionMaster()->Clear();
                 Romulo->setDeathState(JUST_DIED);
                 Romulo->CombatStop(true);
                 Romulo->DeleteThreatList();
-                Romulo->SetUInt32Value(OBJECT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE);
+                Romulo->SetDynamicFlags(UNIT_DYNFLAG_LOOTABLE);
             }
 
             return;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,8 +19,9 @@
 #define BattlenetPackets_h__
 
 #include "Packet.h"
-#include "MessageBuffer.h"
 #include "BattlenetRpcErrorCodes.h"
+#include "MessageBuffer.h"
+#include <array>
 
 namespace WorldPackets
 {
@@ -67,6 +68,7 @@ namespace WorldPackets
             WorldPacket const* Write() override;
 
             uint8 State = 0;
+            bool SuppressNotification = true;
         };
 
         class RealmListTicket final : public ServerPacket
@@ -100,7 +102,7 @@ namespace WorldPackets
             void Read() override;
 
             uint32 Token = 0;
-            std::array<uint8, 32> Secret;
+            std::array<uint8, 32> Secret = { };
         };
     }
 }

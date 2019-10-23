@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -23,10 +23,14 @@ SDComment: This AI is under development
 SDCategory: Npc
 EndScriptData */
 
-#include "Player.h"
-#include "ScriptedCreature.h"
 #include "ScriptedFollowerAI.h"
+#include "Creature.h"
 #include "Group.h"
+#include "Log.h"
+#include "Map.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
 
 const float MAX_PLAYER_DISTANCE = 100.0f;
 
@@ -147,19 +151,12 @@ void FollowerAI::JustDied(Unit* /*killer*/)
         if (Group* group = player->GetGroup())
         {
             for (GroupReference* groupRef = group->GetFirstMember(); groupRef != NULL; groupRef = groupRef->next())
-            {
                 if (Player* member = groupRef->GetSource())
-                {
-                    if (member->GetQuestStatus(m_pQuestForFollow->GetQuestId()) == QUEST_STATUS_INCOMPLETE)
+                    if (member->IsInMap(player))
                         member->FailQuest(m_pQuestForFollow->GetQuestId());
-                }
-            }
         }
         else
-        {
-            if (player->GetQuestStatus(m_pQuestForFollow->GetQuestId()) == QUEST_STATUS_INCOMPLETE)
-                player->FailQuest(m_pQuestForFollow->GetQuestId());
-        }
+            player->FailQuest(m_pQuestForFollow->GetQuestId());
     }
 }
 
@@ -234,7 +231,6 @@ void FollowerAI::UpdateAI(uint32 uiDiff)
                     for (GroupReference* groupRef = group->GetFirstMember(); groupRef != NULL; groupRef = groupRef->next())
                     {
                         Player* member = groupRef->GetSource();
-
                         if (member && me->IsWithinDistInMap(member, MAX_PLAYER_DISTANCE))
                         {
                             bIsMaxRangeExceeded = false;
@@ -319,7 +315,8 @@ void FollowerAI::StartFollow(Player* player, uint32 factionForFollower, const Qu
         TC_LOG_DEBUG("scripts", "FollowerAI start with WAYPOINT_MOTION_TYPE, set to MoveIdle.");
     }
 
-    me->SetUInt64Value(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_NONE);
+    me->SetNpcFlags(UNIT_NPC_FLAG_NONE);
+    me->SetNpcFlags2(UNIT_NPC_FLAG_2_NONE);
 
     AddFollowState(STATE_FOLLOW_INPROGRESS);
 
@@ -341,8 +338,7 @@ Player* FollowerAI::GetLeaderForFollower()
                 for (GroupReference* groupRef = group->GetFirstMember(); groupRef != NULL; groupRef = groupRef->next())
                 {
                     Player* member = groupRef->GetSource();
-
-                    if (member && member->IsAlive() && me->IsWithinDistInMap(member, MAX_PLAYER_DISTANCE))
+                    if (member && me->IsWithinDistInMap(member, MAX_PLAYER_DISTANCE) && member->IsAlive())
                     {
                         TC_LOG_DEBUG("scripts", "FollowerAI GetLeader changed and returned new leader.");
                         m_uiLeaderGUID = member->GetGUID();

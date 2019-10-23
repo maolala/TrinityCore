@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,15 +15,17 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ObjectMgr.h"
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "SpellScript.h"
-#include "SpellAuraEffects.h"
 #include "GridNotifiers.h"
-#include "Player.h"
-#include "ObjectAccessor.h"
 #include "halls_of_origination.h"
+#include "InstanceScript.h"
+#include "Map.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
+#include "ScriptedCreature.h"
+#include "SpellAuraEffects.h"
+#include "SpellScript.h"
 
 enum Texts
 {
@@ -149,7 +151,7 @@ public:
             if (instance->GetData(DATA_DEAD_ELEMENTALS) == 4)
             {
                 // Set to combat automatically, Brann's event won't repeat
-                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                 events.SetPhase(PHASE_COMBAT);
                 ScheduleCombatEvents();
                 me->SetHomePosition(AnraphetActivatePos);
@@ -233,7 +235,7 @@ public:
                         events.ScheduleEvent(EVENT_ANRAPHET_READY, 6000, 0, PHASE_INTRO);
                         break;
                     case EVENT_ANRAPHET_READY:
-                        me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                        me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                         events.SetPhase(PHASE_COMBAT);
                         ScheduleCombatEvents();
                         break;
@@ -289,7 +291,7 @@ class npc_omega_stance : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_omega_stanceAI(creature);
+            return GetHallsOfOriginationAI<npc_omega_stanceAI>(creature);
         }
 };
 
@@ -339,7 +341,7 @@ class npc_brann_bronzebeard_anraphet : public CreatureScript
                     _instance->SetBossState(DATA_VAULT_OF_LIGHTS, IN_PROGRESS);
                     _currentPoint = 0;
                     events.Reset();
-                    me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                    me->RemoveNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                     me->SetWalk(true);
                     Talk(BRANN_SAY_DOOR_INTRO);
                     events.ScheduleEvent(EVENT_BRANN_UNLOCK_DOOR, 7500);
@@ -363,7 +365,7 @@ class npc_brann_bronzebeard_anraphet : public CreatureScript
                         break;
                     }
                     case ACTION_ANRAPHET_DIED:
-                        me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                        me->RemoveNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                         events.ScheduleEvent(EVENT_BRANN_MOVE_INTRO, 1000);
                         break;
                 }
@@ -410,7 +412,7 @@ class npc_brann_bronzebeard_anraphet : public CreatureScript
                             break;
                         case EVENT_BRANN_SAY_GET_IT:
                             Talk(BRANN_SAY_GET_IT);
-                            me->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                            me->AddNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                             break;
                         case EVENT_BRANN_SET_ORIENTATION_4:
                             me->SetFacingTo(3.141593f);
@@ -541,7 +543,7 @@ public:
 
             float x = caster->GetPositionX() + dist * std::cos(angle);
             float y = caster->GetPositionY() + dist * std::sin(angle);
-            float z = caster->GetMap()->GetHeight(x, y, caster->GetPositionZ());
+            float z = caster->GetMap()->GetHeight(caster->GetPhaseShift(), x, y, caster->GetPositionZ());
             float o = dest._position.GetOrientation();
 
             dest.Relocate({ x, y, z, o });

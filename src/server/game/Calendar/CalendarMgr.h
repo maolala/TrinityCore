@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,9 +19,14 @@
 #define TRINITY_CALENDARMGR_H
 
 #include "Common.h"
-#include "DatabaseEnv.h"
-#include "WorldPacket.h"
+#include "DatabaseEnvFwd.h"
 #include "ObjectGuid.h"
+#include <deque>
+#include <map>
+#include <set>
+#include <vector>
+
+class WorldPacket;
 
 enum CalendarMailAnswers
 {
@@ -308,10 +313,10 @@ class TC_GAME_API CalendarMgr
         void UpdateEvent(CalendarEvent* calendarEvent);
 
         void AddInvite(CalendarEvent* calendarEvent, CalendarInvite* invite);
-        void AddInvite(CalendarEvent* calendarEvent, CalendarInvite* invite, SQLTransaction& trans);
+        void AddInvite(CalendarEvent* calendarEvent, CalendarInvite* invite, CharacterDatabaseTransaction& trans);
         void RemoveInvite(uint64 inviteId, uint64 eventId, ObjectGuid remover);
         void UpdateInvite(CalendarInvite* invite);
-        void UpdateInvite(CalendarInvite* invite, SQLTransaction& trans);
+        void UpdateInvite(CalendarInvite* invite, CharacterDatabaseTransaction& trans);
 
         void RemoveAllPlayerEventsAndInvites(ObjectGuid guid);
         void RemovePlayerGuildEventsAndSignups(ObjectGuid guid, ObjectGuid::LowType guildId);

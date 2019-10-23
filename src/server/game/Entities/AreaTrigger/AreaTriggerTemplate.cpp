@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,8 +16,30 @@
  */
 
 #include "AreaTriggerTemplate.h"
-
+#include <G3D/Vector3.h>
+#include <algorithm>
+#include <cstring>
 #include <cmath>
+
+AreaTriggerScaleInfo::AreaTriggerScaleInfo()
+{
+    memset(Data.Raw, 0, sizeof(Data.Raw));
+}
+
+AreaTriggerTemplate::AreaTriggerTemplate()
+{
+    Id = 0;
+    Type = AREATRIGGER_TYPE_MAX;
+    Flags = 0;
+    ScriptId = 0;
+    MaxSearchRadius = 0.0f;
+
+    memset(DefaultDatas.Data, 0, sizeof(DefaultDatas.Data));
+}
+
+AreaTriggerTemplate::~AreaTriggerTemplate()
+{
+}
 
 // Init the MaxSearchRadius that will be used in TrinitySearcher, avoiding calculate it at each update
 void AreaTriggerTemplate::InitMaxSearchRadius()
@@ -39,9 +61,10 @@ void AreaTriggerTemplate::InitMaxSearchRadius()
             if (PolygonDatas.Height <= 0.0f)
                 PolygonDatas.Height = 1.0f;
 
-            for (G3D::Vector2 const& vertice : PolygonVertices)
+            Position center(0.0f, 0.0f);
+            for (TaggedPosition<Position::XY> const& vertice : PolygonVertices)
             {
-                float pointDist = vertice.length();
+                float pointDist = center.GetExactDist2d(vertice);
 
                 if (pointDist > MaxSearchRadius)
                     MaxSearchRadius = pointDist;
@@ -57,4 +80,41 @@ void AreaTriggerTemplate::InitMaxSearchRadius()
         default:
             break;
     }
+}
+
+AreaTriggerMiscTemplate::AreaTriggerMiscTemplate()
+{
+    MiscId = 0;
+    AreaTriggerEntry = 0;
+
+    MoveCurveId = 0;
+    ScaleCurveId = 0;
+    MorphCurveId = 0;
+    FacingCurveId = 0;
+
+    AnimId = 0;
+    AnimKitId = 0;
+
+    DecalPropertiesId = 0;
+
+    TimeToTarget = 0;
+    TimeToTargetScale = 0;
+
+    // legacy code from before it was known what each curve field does
+    // wtf? thats not how you pack curve data
+    float tmp = 1.0000001f;
+    memcpy(&ExtraScale.Data.Raw[5], &tmp, sizeof(tmp));
+    // also OverrideActive does nothing on ExtraScale
+    ExtraScale.Data.Structured.OverrideActive = 1;
+
+    Template = nullptr;
+}
+
+AreaTriggerMiscTemplate::~AreaTriggerMiscTemplate()
+{
+}
+
+bool AreaTriggerMiscTemplate::HasSplines() const
+{
+    return SplinePoints.size() >= 2;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -24,9 +24,11 @@
 #include "DynamicObject.h"
 #include "Corpse.h"
 #include "AreaTrigger.h"
+#include "Conversation.h"
 #include "World.h"
 #include "CellImpl.h"
 #include "CreatureAI.h"
+#include "Log.h"
 
 void ObjectGridEvacuator::Visit(CreatureMapType &m)
 {
@@ -134,14 +136,14 @@ void LoadHelper(CellGuidSet const& guid_set, CellCoord &cell, GridRefManager<T> 
 void ObjectGridLoader::Visit(GameObjectMapType &m)
 {
     CellCoord cellCoord = i_cell.GetCellCoord();
-    CellObjectGuids const& cell_guids = sObjectMgr->GetCellObjectGuids(i_map->GetId(), i_map->GetSpawnMode(), cellCoord.GetId());
+    CellObjectGuids const& cell_guids = sObjectMgr->GetCellObjectGuids(i_map->GetId(), i_map->GetDifficultyID(), cellCoord.GetId());
     LoadHelper(cell_guids.gameobjects, cellCoord, m, i_gameObjects, i_map);
 }
 
 void ObjectGridLoader::Visit(CreatureMapType &m)
 {
     CellCoord cellCoord = i_cell.GetCellCoord();
-    CellObjectGuids const& cell_guids = sObjectMgr->GetCellObjectGuids(i_map->GetId(), i_map->GetSpawnMode(), cellCoord.GetId());
+    CellObjectGuids const& cell_guids = sObjectMgr->GetCellObjectGuids(i_map->GetId(), i_map->GetDifficultyID(), cellCoord.GetId());
     LoadHelper(cell_guids.creatures, cellCoord, m, i_creatures, i_map);
 }
 
@@ -219,7 +221,7 @@ void ObjectGridStoper::Visit(CreatureMapType &m)
         iter->GetSource()->RemoveAllDynObjects();
         iter->GetSource()->RemoveAllAreaTriggers();
 
-        if (iter->GetSource()->IsInCombat())
+        if (iter->GetSource()->IsInCombat() || !iter->GetSource()->getThreatManager().areThreatListsEmpty())
         {
             iter->GetSource()->CombatStop();
             iter->GetSource()->DeleteThreatList();
@@ -238,6 +240,7 @@ void ObjectGridCleaner::Visit(GridRefManager<T> &m)
 template void ObjectGridUnloader::Visit(CreatureMapType &);
 template void ObjectGridUnloader::Visit(GameObjectMapType &);
 template void ObjectGridUnloader::Visit(DynamicObjectMapType &);
+template void ObjectGridUnloader::Visit(ConversationMapType &);
 
 template void ObjectGridUnloader::Visit(AreaTriggerMapType &);
 template void ObjectGridCleaner::Visit(CreatureMapType &);
@@ -245,3 +248,4 @@ template void ObjectGridCleaner::Visit<GameObject>(GameObjectMapType &);
 template void ObjectGridCleaner::Visit<DynamicObject>(DynamicObjectMapType &);
 template void ObjectGridCleaner::Visit<Corpse>(CorpseMapType &);
 template void ObjectGridCleaner::Visit<AreaTrigger>(AreaTriggerMapType &);
+template void ObjectGridCleaner::Visit<Conversation>(ConversationMapType &);

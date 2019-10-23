@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,10 +19,12 @@
 #define SpellHistory_h__
 
 #include "SharedDefines.h"
-#include "QueryResult.h"
-#include "Transaction.h"
+#include "DatabaseEnvFwd.h"
+#include "GameTime.h"
 #include <chrono>
 #include <deque>
+#include <vector>
+#include <unordered_map>
 
 class Item;
 class Player;
@@ -75,7 +77,7 @@ public:
     void LoadFromDB(PreparedQueryResult cooldownsResult, PreparedQueryResult chargesResult);
 
     template<class OwnerType>
-    void SaveToDB(SQLTransaction& trans);
+    void SaveToDB(CharacterDatabaseTransaction& trans);
 
     void Update();
 
@@ -94,12 +96,13 @@ public:
     template<class Type, class Period>
     void AddCooldown(uint32 spellId, uint32 itemId, std::chrono::duration<Type, Period> cooldownDuration)
     {
-        Clock::time_point now = Clock::now();
+        Clock::time_point now = GameTime::GetGameTimeSystemPoint();
         AddCooldown(spellId, itemId, now + std::chrono::duration_cast<Clock::duration>(cooldownDuration), 0, now);
     }
 
     void AddCooldown(uint32 spellId, uint32 itemId, Clock::time_point cooldownEnd, uint32 categoryId, Clock::time_point categoryEnd, bool onHold = false);
     void ModifyCooldown(uint32 spellId, int32 cooldownModMs);
+    void ModifyCooldown(uint32 spellId, Clock::duration cooldownMod);
     void ResetCooldown(uint32 spellId, bool update = false);
     void ResetCooldown(CooldownStorageType::iterator& itr, bool update = false);
     template<typename Predicate>

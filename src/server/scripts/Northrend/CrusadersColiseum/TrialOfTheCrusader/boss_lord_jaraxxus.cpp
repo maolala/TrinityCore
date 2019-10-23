@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2010 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -17,9 +17,10 @@
  */
 
 #include "ScriptMgr.h"
+#include "InstanceScript.h"
 #include "ScriptedCreature.h"
+#include "SpellInfo.h"
 #include "SpellScript.h"
-#include "Player.h"
 #include "trial_of_the_crusader.h"
 
 enum Yells
@@ -118,7 +119,7 @@ class boss_jaraxxus : public CreatureScript
                 _JustReachedHome();
                 instance->SetBossState(BOSS_JARAXXUS, FAIL);
                 DoCast(me, SPELL_JARAXXUS_CHAINS);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC);
+                me->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC));
             }
 
             void KilledUnit(Unit* who) override
@@ -207,7 +208,7 @@ class boss_jaraxxus : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<boss_jaraxxusAI>(creature);
+            return GetTrialOfTheCrusaderAI<boss_jaraxxusAI>(creature);
         }
 };
 
@@ -226,7 +227,7 @@ class npc_legion_flame : public CreatureScript
 
             void Reset() override
             {
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+                me->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE));
                 me->SetInCombatWithZone();
                 DoCast(SPELL_LEGION_FLAME_EFFECT);
             }
@@ -243,7 +244,7 @@ class npc_legion_flame : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_legion_flameAI>(creature);
+            return GetTrialOfTheCrusaderAI<npc_legion_flameAI>(creature);
         }
 };
 
@@ -264,9 +265,9 @@ class npc_infernal_volcano : public CreatureScript
                 me->SetReactState(REACT_PASSIVE);
 
                 if (!IsHeroic())
-                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED);
+                    me->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED));
                 else
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED);
+                    me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED));
 
                 _summons.DespawnAll();
             }
@@ -350,7 +351,7 @@ class npc_fel_infernal : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_fel_infernalAI>(creature);
+            return GetTrialOfTheCrusaderAI<npc_fel_infernalAI>(creature);
         }
 };
 
@@ -368,9 +369,9 @@ class npc_nether_portal : public CreatureScript
                 me->SetReactState(REACT_PASSIVE);
 
                 if (!IsHeroic())
-                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED);
+                    me->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED));
                 else
-                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED);
+                    me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED));
 
                 _summons.DespawnAll();
             }
@@ -401,7 +402,7 @@ class npc_nether_portal : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_nether_portalAI(creature);
+            return GetTrialOfTheCrusaderAI<npc_nether_portalAI>(creature);
         }
 };
 
@@ -479,7 +480,7 @@ class npc_mistress_of_pain : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<npc_mistress_of_painAI>(creature);
+            return GetTrialOfTheCrusaderAI<npc_mistress_of_painAI>(creature);
         }
 };
 
@@ -494,10 +495,7 @@ class spell_mistress_kiss : public SpellScriptLoader
 
             bool Load() override
             {
-                if (GetCaster())
-                    if (sSpellMgr->GetSpellInfo(SPELL_MISTRESS_KISS_DAMAGE_SILENCE))
-                        return true;
-                return false;
+                return ValidateSpellInfo({ SPELL_MISTRESS_KISS_DAMAGE_SILENCE });
             }
 
             void HandleDummyTick(AuraEffect const* /*aurEff*/)
@@ -533,9 +531,8 @@ class MistressKissTargetSelector
 
         bool operator()(WorldObject* unit) const
         {
-            if (unit->GetTypeId() == TYPEID_PLAYER)
-                if (unit->ToPlayer()->getPowerType() == POWER_MANA)
-                    return false;
+            if (unit->GetTypeId() == TYPEID_PLAYER && unit->ToUnit()->GetPowerType() == POWER_MANA)
+                return false;
 
             return true;
         }
@@ -591,9 +588,7 @@ public:
 
         bool Validate(SpellInfo const* /*spellInfo*/) override
         {
-            if (!sSpellMgr->GetSpellInfo(SPELL_FEL_STREAK))
-                return false;
-            return true;
+            return ValidateSpellInfo({ SPELL_FEL_STREAK });
         }
 
         void HandleScript(SpellEffIndex /*effIndex*/)

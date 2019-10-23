@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -31,11 +31,13 @@ npc_fel_guard_hound
 EndContentData */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "ScriptedGossip.h"
-#include "ScriptedEscortAI.h"
+#include "Log.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
-#include "WorldSession.h"
+#include "QuestDef.h"
+#include "ScriptedEscortAI.h"
+#include "ScriptedGossip.h"
 
 /*######
 ## npc_aeranas
@@ -74,7 +76,7 @@ public:
         {
             Initialize();
 
-            me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_QUESTGIVER);
+            me->RemoveNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
             me->setFaction(FACTION_FRIENDLY);
 
             Talk(SAY_SUMMON);
@@ -97,7 +99,7 @@ public:
             if (HealthBelowPct(30))
             {
                 me->setFaction(FACTION_FRIENDLY);
-                me->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_QUESTGIVER);
+                me->AddNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
                 me->RemoveAllAuras();
                 me->DeleteThreatList();
                 me->CombatStop(true);
@@ -332,8 +334,14 @@ public:
 
 enum FelGuard
 {
-    SPELL_SUMMON_POO            = 37688,
-    NPC_DERANGED_HELBOAR        = 16863
+    SPELL_SUMMON_POO     = 37688,
+    SPELL_FAKE_BLOOD     = 37692,
+    NPC_DERANGED_HELBOAR = 16863,
+
+    EVENT_SEARCH_HELBOAR = 1,
+    EVENT_HELBOAR_FOUND  = 2,
+    EVENT_SUMMON_POO     = 3,
+    EVENT_FOLLOW_PLAYER  = 4
 };
 
 class npc_fel_guard_hound : public CreatureScript
@@ -350,8 +358,8 @@ public:
 
         void Initialize()
         {
-            checkTimer = 5000; //check for creature every 5 sec
             helboarGUID.Clear();
+            _events.ScheduleEvent(EVENT_SEARCH_HELBOAR, Seconds(3));
         }
 
         void Reset() override
@@ -366,29 +374,54 @@ public:
 
             if (Creature* helboar = ObjectAccessor::GetCreature(*me, helboarGUID))
             {
-                helboar->RemoveCorpse();
-                DoCast(SPELL_SUMMON_POO);
-
-                if (Player* owner = me->GetCharmerOrOwnerPlayerOrPlayerItself())
-                    me->GetMotionMaster()->MoveFollow(owner, 0.0f, 0.0f);
+                _events.CancelEvent(EVENT_SEARCH_HELBOAR);
+                me->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_UNARMED);
+                me->CastSpell(helboar, SPELL_FAKE_BLOOD);
+                _events.ScheduleEvent(EVENT_HELBOAR_FOUND, Seconds(2));
             }
         }
 
         void UpdateAI(uint32 diff) override
         {
-            if (checkTimer <= diff)
+            _events.Update(diff);
+
+            while (uint32 eventId = _events.ExecuteEvent())
             {
-                if (Creature* helboar = me->FindNearestCreature(NPC_DERANGED_HELBOAR, 10.0f, false))
+                switch (eventId)
                 {
-                    if (helboar->GetGUID() != helboarGUID && me->GetMotionMaster()->GetCurrentMovementGeneratorType() != POINT_MOTION_TYPE && !me->FindCurrentSpellBySpellId(SPELL_SUMMON_POO))
-                    {
-                        helboarGUID = helboar->GetGUID();
-                        me->GetMotionMaster()->MovePoint(1, helboar->GetPositionX(), helboar->GetPositionY(), helboar->GetPositionZ());
-                    }
+                    case EVENT_SEARCH_HELBOAR:
+                        if (Creature* helboar = me->FindNearestCreature(NPC_DERANGED_HELBOAR, 10.0f, false))
+                        {
+                            if (helboar->GetGUID() != helboarGUID && me->GetMotionMaster()->GetCurrentMovementGeneratorType() != POINT_MOTION_TYPE && !me->FindCurrentSpellBySpellId(SPELL_SUMMON_POO))
+                            {
+                                helboarGUID = helboar->GetGUID();
+                                me->SetWalk(true);
+                                me->GetMotionMaster()->MovePoint(1, helboar->GetPositionX(), helboar->GetPositionY(), helboar->GetPositionZ());
+                                helboar->DespawnOrUnsummon(Seconds(10));
+                            }
+                        }
+                        _events.Repeat(Seconds(3));
+                        break;
+                    case EVENT_HELBOAR_FOUND:
+                        if (Creature* helboar = ObjectAccessor::GetCreature(*me, helboarGUID))
+                        {
+                            me->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_UNARMED);
+                            me->CastSpell(helboar, SPELL_FAKE_BLOOD);
+                            _events.ScheduleEvent(EVENT_SUMMON_POO, Seconds(1));
+                        }
+                        break;
+                    case EVENT_SUMMON_POO:
+                        DoCast(SPELL_SUMMON_POO);
+                        _events.ScheduleEvent(EVENT_FOLLOW_PLAYER, Seconds(2));
+                        break;
+                    case EVENT_FOLLOW_PLAYER:
+                        me->SetWalk(false);
+                        if (Player* owner = me->GetCharmerOrOwnerPlayerOrPlayerItself())
+                            me->GetMotionMaster()->MoveFollow(owner, 0.0f, 0.0f);
+                        _events.ScheduleEvent(EVENT_SEARCH_HELBOAR, Seconds(3));
+                        break;
                 }
-                checkTimer = 5000;
             }
-            else checkTimer -= diff;
 
             if (!UpdateVictim())
                 return;
@@ -397,7 +430,7 @@ public:
         }
 
     private:
-        uint32 checkTimer;
+        EventMap _events;
         ObjectGuid helboarGUID;
     };
 
@@ -651,7 +684,7 @@ public:
             Initialize();
 
             playerGUID.Clear();
-            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED);
+            me->RemoveUnitFlag(UNIT_FLAG_PACIFIED);
         }
 
         void sGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
@@ -660,7 +693,7 @@ public:
             switch (gossipListId)
             {
                 case 1:
-                    player->PlayerTalkClass->SendCloseGossip();
+                    CloseGossipMenuFor(player);
                     me->AI()->Talk(SAY_BARADA_1);
                     me->AI()->DoAction(ACTION_START_EVENT);
                     break;
@@ -682,7 +715,7 @@ public:
                 me->GetMotionMaster()->MovePoint(0, exorcismPos[1]);
                 Talk(SAY_BARADA_2);
 
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED);
+                me->AddUnitFlag(UNIT_FLAG_PACIFIED);
             }
         }
 
@@ -862,7 +895,7 @@ public:
                                 }
 
                                 me->RemoveAura(SPELL_BARADAS_COMMAND);
-                                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED);
+                                me->RemoveUnitFlag(UNIT_FLAG_PACIFIED);
 
                                 Talk(SAY_BARADA_8);
                                 me->GetMotionMaster()->MoveTargetedHome();
@@ -892,6 +925,123 @@ public:
     }
 };
 
+enum Aledis
+{
+    SAY_CHALLENGE = 0,
+    SAY_DEFEATED = 1,
+    EVENT_TALK = 1,
+    EVENT_ATTACK = 2,
+    EVENT_EVADE = 3,
+    EVENT_FIREBALL = 4,
+    EVENT_FROSTNOVA = 5,
+    SPELL_FIREBALL = 20823,
+    SPELL_FROSTNOVA = 11831
+};
+
+class npc_magister_aledis : public CreatureScript
+{
+public:
+    npc_magister_aledis() : CreatureScript("npc_magister_aledis") { }
+
+    bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 /*action*/) override
+    {
+        CloseGossipMenuFor(player);
+        creature->StopMoving();
+        ENSURE_AI(npc_magister_aledis::npc_magister_aledisAI, creature->AI())->StartFight(player);
+        return true;
+    }
+
+    struct npc_magister_aledisAI : public ScriptedAI
+    {
+        npc_magister_aledisAI(Creature* creature) : ScriptedAI(creature) { }
+
+        void StartFight(Player* player)
+        {
+            me->Dismount();
+            me->SetFacingToObject(player, true);
+            me->RemoveNpcFlag(UNIT_NPC_FLAG_GOSSIP);
+            _playerGUID = player->GetGUID();
+            _events.ScheduleEvent(EVENT_TALK, Seconds(2));
+        }
+
+        void Reset() override
+        {
+            me->RestoreFaction();
+            me->RemoveNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
+            me->AddNpcFlag(UNIT_NPC_FLAG_GOSSIP);
+            me->AddUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
+        }
+
+        void DamageTaken(Unit* /*attacker*/, uint32 &damage) override
+        {
+            if (damage > me->GetHealth() || me->HealthBelowPctDamaged(20, damage))
+            {
+                damage = 0;
+
+                _events.Reset();
+                me->RestoreFaction();
+                me->RemoveAllAuras();
+                me->DeleteThreatList();
+                me->CombatStop(true);
+                me->AddNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
+                me->AddUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
+                Talk(SAY_DEFEATED);
+
+                _events.ScheduleEvent(EVENT_EVADE, Minutes(1));
+            }
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            _events.Update(diff);
+
+            while (uint32 eventId = _events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                case EVENT_TALK:
+                    Talk(SAY_CHALLENGE);
+                    _events.ScheduleEvent(EVENT_ATTACK, Seconds(2));
+                    break;
+                case EVENT_ATTACK:
+                    me->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
+                    me->setFaction(FACTION_HOSTILE);
+                    if (Player* player = ObjectAccessor::GetPlayer(*me, _playerGUID))
+                        me->CombatStart(player);
+                    _events.ScheduleEvent(EVENT_FIREBALL, 1);
+                    _events.ScheduleEvent(EVENT_FROSTNOVA, Seconds(5));
+                    break;
+                case EVENT_FIREBALL:
+                    DoCast(SPELL_FIREBALL);
+                    _events.ScheduleEvent(EVENT_FIREBALL, Seconds(10));
+                    break;
+                case EVENT_FROSTNOVA:
+                    DoCastAOE(SPELL_FROSTNOVA);
+                    _events.ScheduleEvent(EVENT_FROSTNOVA, Seconds(20));
+                    break;
+                case EVENT_EVADE:
+                    EnterEvadeMode();
+                    break;
+                }
+            }
+
+            if (!UpdateVictim())
+                return;
+
+            DoMeleeAttackIfReady();
+        }
+
+    private:
+        EventMap _events;
+        ObjectGuid _playerGUID;
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_magister_aledisAI(creature);
+    }
+};
+
 void AddSC_hellfire_peninsula()
 {
     new npc_aeranas();
@@ -900,4 +1050,5 @@ void AddSC_hellfire_peninsula()
     new npc_fel_guard_hound();
     new npc_colonel_jules();
     new npc_barada();
+    new npc_magister_aledis();
 }

@@ -1,5 +1,5 @@
  /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -29,11 +29,16 @@ npc_image_of_medivh
 EndContentData */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "ScriptedGossip.h"
+#include "InstanceScript.h"
 #include "karazhan.h"
-#include "ScriptedEscortAI.h"
+#include "Log.h"
+#include "Map.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
+#include "ScriptedEscortAI.h"
+#include "ScriptedGossip.h"
+#include "TemporarySummon.h"
 
 enum Spells
 {
@@ -195,7 +200,7 @@ public:
                         me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), 0.0f,
                         TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 60000))
                     {
-                        spotlight->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                        spotlight->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                         spotlight->CastSpell(spotlight, SPELL_SPOTLIGHT, false);
                         m_uiSpotlightGUID = spotlight->GetGUID();
                     }
@@ -271,11 +276,7 @@ public:
                 float PosX = Spawns[index][1];
 
                 if (Creature* creature = me->SummonCreature(entry, PosX, SPAWN_Y, SPAWN_Z, SPAWN_O, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, HOUR*2*IN_MILLISECONDS))
-                {
-                    // In case database has bad flags
-                    creature->SetUInt32Value(UNIT_FIELD_FLAGS, 0);
-                    creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
-                }
+                    creature->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
             }
 
             RaidWiped = false;
@@ -406,7 +407,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_barnesAI>(creature);
+        return GetKarazhanAI<npc_barnesAI>(creature);
     }
 };
 
@@ -435,7 +436,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_image_of_medivhAI>(creature);
+        return GetKarazhanAI<npc_image_of_medivhAI>(creature);
     }
 
     struct npc_image_of_medivhAI : public ScriptedAI
@@ -474,13 +475,12 @@ public:
             if (instance->GetGuidData(DATA_IMAGE_OF_MEDIVH).IsEmpty())
             {
                 instance->SetGuidData(DATA_IMAGE_OF_MEDIVH, me->GetGUID());
-                (*me).GetMotionMaster()->MovePoint(1, MedivPos[0], MedivPos[1], MedivPos[2]);
+                me->GetMotionMaster()->MovePoint(1, MedivPos[0], MedivPos[1], MedivPos[2]);
                 Step = 0;
             }
             else
             {
-                me->DealDamage(me, me->GetHealth(), NULL, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, NULL, false);
-                me->RemoveCorpse();
+                me->DespawnOrUnsummon();
             }
         }
         void EnterCombat(Unit* /*who*/) override { }

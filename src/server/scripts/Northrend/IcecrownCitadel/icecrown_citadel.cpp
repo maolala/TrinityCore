@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,18 +15,23 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ObjectMgr.h"
-#include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "ScriptedEscortAI.h"
-#include "PassiveAI.h"
-#include "Cell.h"
-#include "CellImpl.h"
-#include "GridNotifiers.h"
-#include "GridNotifiersImpl.h"
-#include "SpellAuraEffects.h"
-#include "SmartAI.h"
 #include "icecrown_citadel.h"
+#include "CellImpl.h"
+#include "GameObject.h"
+#include "GridNotifiersImpl.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "PassiveAI.h"
+#include "PetDefines.h"
+#include "Player.h"
+#include "ScriptedEscortAI.h"
+#include "SmartAI.h"
+#include "Spell.h"
+#include "SpellInfo.h"
+#include "SpellScript.h"
+#include "TemporarySummon.h"
+#include "VehicleDefines.h"
 
 // Weekly quest support
 // * Deprogramming                (DONE)
@@ -130,6 +135,7 @@ enum ICCSpells
     SPELL_IMPALING_SPEAR            = 71443,
     SPELL_AETHER_SHIELD             = 71463,
     SPELL_HURL_SPEAR                = 71466,
+    SPELL_DIVINE_SURGE              = 71465,
 
     // Captain Arnath
     SPELL_DOMINATE_MIND             = 14515,
@@ -776,6 +782,7 @@ class boss_sister_svalna : public CreatureScript
                 _EnterCombat();
                 if (Creature* crok = ObjectAccessor::GetCreature(*me, instance->GetGuidData(DATA_CROK_SCOURGEBANE)))
                     crok->AI()->Talk(SAY_CROK_COMBAT_SVALNA);
+                DoCastSelf(SPELL_DIVINE_SURGE, true);
                 events.ScheduleEvent(EVENT_SVALNA_COMBAT, 9000);
                 events.ScheduleEvent(EVENT_IMPALING_SPEAR, urand(40000, 50000));
                 events.ScheduleEvent(EVENT_AETHER_SHIELD, urand(100000, 110000));
@@ -824,7 +831,7 @@ class boss_sister_svalna : public CreatureScript
                     case ACTION_START_GAUNTLET:
                         me->setActive(true);
                         _isEventInProgress = true;
-                        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
+                        me->AddUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
                         events.ScheduleEvent(EVENT_SVALNA_START, 25000);
                         break;
                     case ACTION_RESURRECT_CAPTAINS:
@@ -858,7 +865,7 @@ class boss_sister_svalna : public CreatureScript
 
                 _isEventInProgress = false;
                 me->setActive(false);
-                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
+                me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
                 me->SetDisableGravity(false);
                 me->SetHover(false);
             }
@@ -875,7 +882,7 @@ class boss_sister_svalna : public CreatureScript
                         {
                             Talk(EMOTE_SVALNA_IMPALE, target);
                             summon->CastCustomSpell(VEHICLE_SPELL_RIDE_HARDCODED, SPELLVALUE_BASE_POINT0, 1, target, false);
-                            summon->SetFlag(UNIT_FIELD_FLAGS_2, UNIT_FLAG2_UNK1 | UNIT_FLAG2_ALLOW_ENEMY_INTERACT);
+                            summon->AddUnitFlag2(UnitFlags2(UNIT_FLAG2_UNK1 | UNIT_FLAG2_ALLOW_ENEMY_INTERACT));
                         }
                         break;
                     default:
@@ -1029,6 +1036,7 @@ class npc_crok_scourgebane : public CreatureScript
                 {
                     // pause pathing until trash pack is cleared
                     case 0:
+                        me->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_NPC);
                         Talk(SAY_CROK_COMBAT_WP_0);
                         if (!_aliveTrash.empty())
                             SetEscortPaused(true);
@@ -1083,7 +1091,7 @@ class npc_crok_scourgebane : public CreatureScript
                         std::list<Creature*> temp;
                         FrostwingVrykulSearcher check(me, 80.0f);
                         Trinity::CreatureListSearcher<FrostwingVrykulSearcher> searcher(me, temp, check);
-                        me->VisitNearbyGridObject(80.0f, searcher);
+                        Cell::VisitGridObjects(me, searcher, 80.0f);
 
                         _aliveTrash.clear();
                         for (std::list<Creature*>::iterator itr = temp.begin(); itr != temp.end(); ++itr)
@@ -1110,7 +1118,7 @@ class npc_crok_scourgebane : public CreatureScript
                     Player* player = NULL;
                     Trinity::AnyPlayerInObjectRangeCheck check(me, 60.0f);
                     Trinity::PlayerSearcher<Trinity::AnyPlayerInObjectRangeCheck> searcher(me, player, check);
-                    me->VisitNearbyWorldObject(60.0f, searcher);
+                    Cell::VisitWorldObjects(me, searcher, 60.0f);
                     // wipe
                     if (!player)
                     {
@@ -1119,7 +1127,7 @@ class npc_crok_scourgebane : public CreatureScript
                         {
                             FrostwingGauntletRespawner respawner;
                             Trinity::CreatureWorker<FrostwingGauntletRespawner> worker(me, respawner);
-                            me->VisitNearbyGridObject(333.0f, worker);
+                            Cell::VisitGridObjects(me, worker, 333.0f);
                             Talk(SAY_CROK_DEATH);
                         }
                         return;
@@ -1189,7 +1197,8 @@ class npc_crok_scourgebane : public CreatureScript
                             }
                             else
                             {
-                                me->DealHeal(me, me->CountPctFromMaxHealth(5));
+                                // looks totally hacky to me
+                                me->ModifyHealth(me->CountPctFromMaxHealth(5));
                                 _events.ScheduleEvent(EVENT_HEALTH_CHECK, 1000);
                             }
                             break;
@@ -1423,7 +1432,7 @@ class npc_captain_arnath : public CreatureScript
                 Creature* target = NULL;
                 Trinity::MostHPMissingInRange u_check(me, 60.0f, 0);
                 Trinity::CreatureLastSearcher<Trinity::MostHPMissingInRange> searcher(me, target, u_check);
-                me->VisitNearbyGridObject(60.0f, searcher);
+                Cell::VisitGridObjects(me, searcher, 60.0f);
                 return target;
             }
         };
@@ -1773,8 +1782,8 @@ class spell_icc_stoneform : public SpellScriptLoader
                 if (Creature* target = GetTarget()->ToCreature())
                 {
                     target->SetReactState(REACT_PASSIVE);
-                    target->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_IMMUNE_TO_PC);
-                    target->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_STATE_CUSTOM_SPELL_02);
+                    target->AddUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_IMMUNE_TO_PC));
+                    target->SetEmoteState(EMOTE_STATE_CUSTOM_SPELL_02);
                 }
             }
 
@@ -1783,8 +1792,8 @@ class spell_icc_stoneform : public SpellScriptLoader
                 if (Creature* target = GetTarget()->ToCreature())
                 {
                     target->SetReactState(REACT_AGGRESSIVE);
-                    target->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_IMMUNE_TO_PC);
-                    target->SetUInt32Value(UNIT_NPC_EMOTESTATE, 0);
+                    target->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_IMMUNE_TO_PC));
+                    target->SetEmoteState(EMOTE_ONESHOT_NONE);
                 }
             }
 
@@ -1833,7 +1842,7 @@ class spell_icc_sprit_alarm : public SpellScriptLoader
                 }
 
                 if (GameObject* trap = GetCaster()->FindNearestGameObject(trapId, 5.0f))
-                    trap->SetRespawnTime(trap->GetGOInfo()->GetAutoCloseTime());
+                    trap->SetRespawnTime(trap->GetGOInfo()->GetAutoCloseTime() / IN_MILLISECONDS);
 
                 std::list<Creature*> wards;
                 GetCaster()->GetCreatureListWithEntryInGrid(wards, NPC_DEATHBOUND_WARD, 150.0f);
@@ -2005,7 +2014,7 @@ class spell_svalna_revive_champion : public SpellScriptLoader
             void RemoveAliveTarget(std::list<WorldObject*>& targets)
             {
                 targets.remove_if(AliveCheck());
-                Trinity::Containers::RandomResizeList(targets, 2);
+                Trinity::Containers::RandomResize(targets, 2);
             }
 
             void Land(SpellEffIndex /*effIndex*/)
@@ -2015,7 +2024,7 @@ class spell_svalna_revive_champion : public SpellScriptLoader
                     return;
 
                 Position pos = caster->GetNearPosition(5.0f, 0.0f);
-                //pos.m_positionZ = caster->GetBaseMap()->GetHeight(caster->GetPhaseMask(), pos.GetPositionX(), pos.GetPositionY(), caster->GetPositionZ(), true, 50.0f);
+                //pos.m_positionZ = caster->GetBaseMap()->GetHeight(caster->GetPhases(), pos.GetPositionX(), pos.GetPositionY(), caster->GetPositionZ(), true, 50.0f);
                 //pos.m_positionZ += 0.05f;
                 caster->SetHomePosition(pos);
                 caster->GetMotionMaster()->MoveLand(POINT_LAND, pos);
@@ -2093,6 +2102,48 @@ class spell_icc_soul_missile : public SpellScriptLoader
             return new spell_icc_soul_missile_SpellScript();
         }
 };
+
+class spell_trigger_spell_from_caster_SpellScript : public SpellScript
+{
+    PrepareSpellScript(spell_trigger_spell_from_caster_SpellScript);
+
+public:
+    spell_trigger_spell_from_caster_SpellScript(uint32 triggerId, TriggerCastFlags triggerFlags)
+        : SpellScript(), _triggerId(triggerId), _triggerFlags(triggerFlags) { }
+
+    bool Validate(SpellInfo const* /*spell*/) override
+    {
+        return ValidateSpellInfo({ _triggerId });
+    }
+
+    void HandleTrigger()
+    {
+        GetCaster()->CastSpell(GetHitUnit(), _triggerId, _triggerFlags);
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_trigger_spell_from_caster_SpellScript::HandleTrigger);
+    }
+
+    uint32 _triggerId;
+    TriggerCastFlags _triggerFlags;
+};
+
+spell_trigger_spell_from_caster::spell_trigger_spell_from_caster(char const* scriptName, uint32 triggerId)
+    : SpellScriptLoader(scriptName), _triggerId(triggerId), _triggerFlags(TRIGGERED_FULL_MASK)
+{
+}
+
+spell_trigger_spell_from_caster::spell_trigger_spell_from_caster(char const* scriptName, uint32 triggerId, TriggerCastFlags triggerFlags)
+    : SpellScriptLoader(scriptName), _triggerId(triggerId), _triggerFlags(triggerFlags)
+{
+}
+
+SpellScript* spell_trigger_spell_from_caster::GetSpellScript() const
+{
+    return new spell_trigger_spell_from_caster_SpellScript(_triggerId, _triggerFlags);
+}
 
 class at_icc_saurfang_portal : public AreaTriggerScript
 {

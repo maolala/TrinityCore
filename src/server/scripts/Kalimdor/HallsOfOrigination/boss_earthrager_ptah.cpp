@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,15 +15,16 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ObjectMgr.h"
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "SpellScript.h"
-#include "SpellAuraEffects.h"
-#include "Player.h"
-#include "Weather.h"
-#include "WorldSession.h"
 #include "halls_of_origination.h"
+#include "InstanceScript.h"
+#include "Map.h"
+#include "Player.h"
+#include "ScriptedCreature.h"
+#include "SpellAuraEffects.h"
+#include "SpellScript.h"
+#include "TemporarySummon.h"
+#include "Weather.h"
 
 enum Texts
 {
@@ -107,6 +108,7 @@ public:
             for (std::list<Creature*>::iterator itr = units.begin(); itr != units.end(); ++itr)
                 (*itr)->DespawnOrUnsummon();
 
+            units.clear();
             GetCreatureListWithEntryInGrid(units, me, NPC_JEWELED_SCARAB, 100.0f);
             for (std::list<Creature*>::iterator itr = units.begin(); itr != units.end(); ++itr)
                 (*itr)->DespawnOrUnsummon();
@@ -141,7 +143,7 @@ public:
                 GetCreatureListWithEntryInGrid(stalkers, me, NPC_BEETLE_STALKER, 100.0f);
                 std::list<Creature*> beetlers = stalkers;
 
-                Trinity::Containers::RandomResizeList(beetlers, 9); // Holds the summoners of Jeweled Scarab
+                Trinity::Containers::RandomResize(beetlers, 9); // Holds the summoners of Jeweled Scarab
 
                 for (std::list<Creature*>::iterator itr = beetlers.begin(); itr != beetlers.end(); ++itr)
                 {
@@ -151,7 +153,7 @@ public:
                     (*itr)->m_Events.AddEvent(new SummonScarab((*itr), instance), (*itr)->m_Events.CalculateTime(5000));
                 }
 
-                Trinity::Containers::RandomResizeList(stalkers, 2); // Holds the summoners of Dustbone Horror
+                Trinity::Containers::RandomResize(stalkers, 2); // Holds the summoners of Dustbone Horror
 
                 for (std::list<Creature*>::iterator itr = stalkers.begin(); itr != stalkers.end(); ++itr)
                     (*itr)->CastSpell((*itr), SPELL_SUMMON_DUSTBONE_HORROR);
@@ -231,7 +233,7 @@ public:
                         // Spell not in DBC, it is not cast either, according to sniffs
                         if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.0f, true))
                             if (Creature* quicksand = me->SummonCreature(NPC_QUICKSAND, *target))
-                                quicksand->SetUInt32Value(UNIT_CREATED_BY_SPELL, SPELL_SUMMON_QUICKSAND);
+                                quicksand->SetCreatedBySpell(SPELL_SUMMON_QUICKSAND);
                         events.ScheduleEvent(EVENT_QUICKSAND, 10000, 0, PHASE_DISPERSE);
                         break;
                 }
@@ -263,7 +265,7 @@ class spell_earthrager_ptah_flame_bolt : public SpellScriptLoader
 
             void FilterTargets(std::list<WorldObject*>& targets)
             {
-                Trinity::Containers::RandomResizeList(targets, GetCaster()->GetMap()->IsHeroic() ? 3 : 2);
+                Trinity::Containers::RandomResize(targets, GetCaster()->GetMap()->IsHeroic() ? 3 : 2);
             }
 
             void Register() override
@@ -291,8 +293,8 @@ public:
         {
             if (Unit* ptah = GetCaster())
             {
-                ptah->SetFlag(UNIT_FIELD_FLAGS, uint32(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_UNK_29 | UNIT_FLAG_UNK_31));
-                ptah->SetFlag(UNIT_FIELD_FLAGS_2, UNIT_FLAG2_FEIGN_DEATH);
+                ptah->AddUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_UNK_29 | UNIT_FLAG_UNK_31));
+                ptah->AddUnitFlag2(UNIT_FLAG2_FEIGN_DEATH);
             }
         }
 
@@ -300,8 +302,8 @@ public:
         {
             if (Unit* ptah = GetCaster())
             {
-                ptah->RemoveFlag(UNIT_FIELD_FLAGS, uint32(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_UNK_29 | UNIT_FLAG_UNK_31));
-                ptah->RemoveFlag(UNIT_FIELD_FLAGS_2, UNIT_FLAG2_FEIGN_DEATH);
+                ptah->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_UNK_29 | UNIT_FLAG_UNK_31));
+                ptah->RemoveUnitFlag2(UNIT_FLAG2_FEIGN_DEATH);
             }
         }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2008-2019 TrinityCore <https://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,6 +18,7 @@
 #include "ScriptMgr.h"
 #include "ScriptedCreature.h"
 #include "magisters_terrace.h"
+#include "MotionMaster.h"
 
 enum Yells
 {
@@ -182,7 +183,7 @@ class boss_vexallus : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return GetInstanceAI<boss_vexallusAI>(creature);
+            return GetMagistersTerraceAI<boss_vexallusAI>(creature);
         };
 };
 
@@ -202,7 +203,7 @@ class npc_pure_energy : public CreatureScript
         {
             npc_pure_energyAI(Creature* creature) : ScriptedAI(creature)
             {
-                me->SetDisplayId(me->GetCreatureTemplate()->Modelid2);
+                me->SetDisplayFromModel(1);
             }
 
             void JustDied(Unit* killer) override
@@ -214,7 +215,7 @@ class npc_pure_energy : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_pure_energyAI(creature);
+            return GetMagistersTerraceAI<npc_pure_energyAI>(creature);
         };
 };
 
